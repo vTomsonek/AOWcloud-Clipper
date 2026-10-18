@@ -1,0 +1,23 @@
+AOWcloud Clipper
+Copyright 2026 AOWcloud (vTomsonek)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The distributed Windows executable (AOWcloud Clipper.exe) bundles the following
+third-party components, which remain under their own licenses:
+
+- Qt for Python (PySide6) and the Qt libraries, including Qt Multimedia
+  and its FFmpeg-based media backend: GNU LGPL v3.
+  https://www.qt.io/licensing  https://doc.qt.io/qtforpython-6/licenses.html
+  Source code: https://code.qt.io/  https://download.qt.io/
+- FFmpeg libraries shipped with Qt Multimedia (avcodec, avformat, avutil,
+  swscale, swresample): GNU LGPL v2.1 or later. https://ffmpeg.org/legal.html
+- Python runtime: Python Software Foundation License.
+- PyInstaller bootloader: GPL v2 with a special exception that allows
+  distributing bundled applications under any license.
+
+Video encoding uses the ffmpeg / ffprobe programs installed separately by the
+user (for example "winget install ffmpeg"); they are not part of this product.
+
+The horizontal logo images in docs/ use the Montserrat typeface
+(SIL Open Font License 1.1).

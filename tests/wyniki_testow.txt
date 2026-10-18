@@ -1,0 +1,118 @@
+﻿
+=== pion_1080x1920.mp4 ===
+  źródło: 1080x1920, obrót 0°, wyświetlane 1080x1920, 10.00 s, 30.00 fps, audio: True
+  szacunek (6.9 s analizy): CRF20 ≈ 0,33 MB, CRF27 ≈ 0,16 MB, mieści się: True, skróć o: 0.0 s; różnica pętli 0.045
+  eksport 2.7 s, wybrany CRF 20, próby: CRF 20 = 349026 B
+  błąd szacunku: przewidziano 350548 B, wyszło 349026 B (+0.4%)
+  wynik: pion_1080x1920_250.mp4, 250x250, 30 fps, 10.00 s, 349026 B, 279 kb/s
+    [OK ] Kontener MP4: mov,mp4,m4a,3gp,3g2,mj2
+    [OK ] Jedna ścieżka wideo: ścieżek wideo: 1
+    [OK ] Wymiary 250x250: 250x250
+    [OK ] 30 fps: 30,00 fps
+    [OK ] Kodek H.264: h264
+    [OK ] Profil High: High
+    [OK ] Piksele yuv420p: yuv420p
+    [OK ] Bez dźwięku: brak ścieżki audio
+    [OK ] Bez innych ścieżek: tylko wideo
+    [OK ] Waga do 0,5 MB: 349 026 B (0,33 MB) z 524 288 B
+    [OK ] Bez obrotu: brak metadanych obrotu
+    [OK ] faststart (moov na początku): ftyp > moov > free > mdat
+    [OK ] Czas trwania: 10,0 s
+    => SPEŁNIA STANDARD
+
+=== poziom_1920x1080.mov ===
+  źródło: 1920x1080, obrót 0°, wyświetlane 1920x1080, 12.00 s, 30.00 fps, audio: True
+  szacunek (7.2 s analizy): CRF20 ≈ 0,25 MB, CRF27 ≈ 0,11 MB, mieści się: True, skróć o: 0.0 s; różnica pętli 0.027
+  eksport 2.5 s, wybrany CRF 20, próby: CRF 20 = 250174 B
+  błąd szacunku: przewidziano 258619 B, wyszło 250174 B (+3.4%)
+  wynik: poziom_1920x1080_8s_xfade_250.mp4, 250x250, 30 fps, 7.50 s, 250174 B, 266 kb/s
+    [OK ] Kontener MP4: mov,mp4,m4a,3gp,3g2,mj2
+    [OK ] Jedna ścieżka wideo: ścieżek wideo: 1
+    [OK ] Wymiary 250x250: 250x250
+    [OK ] 30 fps: 30,00 fps
+    [OK ] Kodek H.264: h264
+    [OK ] Profil High: High
+    [OK ] Piksele yuv420p: yuv420p
+    [OK ] Bez dźwięku: brak ścieżki audio
+    [OK ] Bez innych ścieżek: tylko wideo
+    [OK ] Waga do 0,5 MB: 250 174 B (0,24 MB) z 524 288 B
+    [OK ] Bez obrotu: brak metadanych obrotu
+    [OK ] faststart (moov na początku): ftyp > moov > free > mdat
+    [OK ] Czas trwania: 7,5 s
+    => SPEŁNIA STANDARD
+
+=== za_male_200x200.mp4 ===
+  źródło: 200x200, obrót 0°, wyświetlane 200x200, 5.00 s, 30.00 fps, audio: True
+  ODRZUCONE: Nagranie jest za małe: 200x200 px. Krótszy bok musi mieć co najmniej 250 px, żeby kadr 250x250 nie był powiększany.
+
+=== telefon_obrot90.mp4 ===
+  źródło: 1920x1080, obrót 270°, wyświetlane 1080x1920, 12.00 s, 30.00 fps, audio: True
+  szacunek (7.5 s analizy): CRF20 ≈ 0,39 MB, CRF27 ≈ 0,17 MB, mieści się: True, skróć o: 0.0 s; różnica pętli 0.036
+  eksport 3.0 s, wybrany CRF 20, próby: CRF 20 = 405325 B
+  błąd szacunku: przewidziano 406919 B, wyszło 405325 B (+0.4%)
+  wynik: telefon_obrot90_250.mp4, 250x250, 30 fps, 12.00 s, 405325 B, 270 kb/s
+    [OK ] Kontener MP4: mov,mp4,m4a,3gp,3g2,mj2
+    [OK ] Jedna ścieżka wideo: ścieżek wideo: 1
+    [OK ] Wymiary 250x250: 250x250
+    [OK ] 30 fps: 30,00 fps
+    [OK ] Kodek H.264: h264
+    [OK ] Profil High: High
+    [OK ] Piksele yuv420p: yuv420p
+    [OK ] Bez dźwięku: brak ścieżki audio
+    [OK ] Bez innych ścieżek: tylko wideo
+    [OK ] Waga do 0,5 MB: 405 325 B (0,39 MB) z 524 288 B
+    [OK ] Bez obrotu: brak metadanych obrotu
+    [OK ] faststart (moov na początku): ftyp > moov > free > mdat
+    [OK ] Czas trwania: 12,0 s
+    => SPEŁNIA STANDARD
+
+=== za_dlugie_60s.mp4 ===
+  źródło: 1920x1080, obrót 0°, wyświetlane 1920x1080, 60.00 s, 30.00 fps, audio: True
+  szacunek (15.1 s analizy): CRF20 ≈ 1,96 MB, CRF27 ≈ 0,88 MB, mieści się: False, skróć o: 27.0 s; różnica pętli 0.019
+  EKSPORT WSTRZYMANY: Fragment jest za długi na limit 0,5 MB nawet przy najniższej dopuszczalnej jakości (CRF 27: 0,87 MB). Skróć fragment o ok. 27,0 s (do ok. 33,0 s).
+
+--- za_dlugie_60s.mp4 skrócone zgodnie z podpowiedzią (33 s) ---
+
+=== za_dlugie_60s.mp4 ===
+  źródło: 1920x1080, obrót 0°, wyświetlane 1920x1080, 60.00 s, 30.00 fps, audio: True
+  szacunek (14.6 s analizy): CRF20 ≈ 1,08 MB, CRF27 ≈ 0,48 MB, mieści się: True, skróć o: 0.0 s; różnica pętli 0.062
+  eksport 9.6 s, wybrany CRF 26.75, próby: CRF 20 = 1124444 B, CRF 27 = 502516 B, CRF 26.75 = 514790 B
+  błąd szacunku: przewidziano 524288 B, wyszło 514790 B (+1.8%)
+  wynik: za_dlugie_60s_33s_250.mp4, 250x250, 30 fps, 33.00 s, 514790 B, 124 kb/s
+    [OK ] Kontener MP4: mov,mp4,m4a,3gp,3g2,mj2
+    [OK ] Jedna ścieżka wideo: ścieżek wideo: 1
+    [OK ] Wymiary 250x250: 250x250
+    [OK ] 30 fps: 30,00 fps
+    [OK ] Kodek H.264: h264
+    [OK ] Profil High: High
+    [OK ] Piksele yuv420p: yuv420p
+    [OK ] Bez dźwięku: brak ścieżki audio
+    [OK ] Bez innych ścieżek: tylko wideo
+    [OK ] Waga do 0,5 MB: 514 790 B (0,49 MB) z 524 288 B
+    [OK ] Bez obrotu: brak metadanych obrotu
+    [OK ] faststart (moov na początku): ftyp > moov > free > mdat
+    [OK ] Czas trwania: 33,0 s
+    => SPEŁNIA STANDARD
+
+--- za_dlugie_60s.mp4, fragment 20 s (wymaga podniesienia CRF) ---
+
+=== za_dlugie_60s.mp4 ===
+  źródło: 1920x1080, obrót 0°, wyświetlane 1920x1080, 60.00 s, 30.00 fps, audio: True
+  szacunek (15.1 s analizy): CRF20 ≈ 0,65 MB, CRF27 ≈ 0,29 MB, mieści się: True, skróć o: 0.0 s; różnica pętli 0.050
+  eksport 7.9 s, wybrany CRF 22.25, próby: CRF 20 = 683001 B, CRF 22.75 = 479351 B, CRF 22.25 = 513104 B
+  błąd szacunku: przewidziano 524288 B, wyszło 513104 B (+2.2%)
+  wynik: za_dlugie_60s_20s_250.mp4, 250x250, 30 fps, 20.00 s, 513104 B, 205 kb/s
+    [OK ] Kontener MP4: mov,mp4,m4a,3gp,3g2,mj2
+    [OK ] Jedna ścieżka wideo: ścieżek wideo: 1
+    [OK ] Wymiary 250x250: 250x250
+    [OK ] 30 fps: 30,00 fps
+    [OK ] Kodek H.264: h264
+    [OK ] Profil High: High
+    [OK ] Piksele yuv420p: yuv420p
+    [OK ] Bez dźwięku: brak ścieżki audio
+    [OK ] Bez innych ścieżek: tylko wideo
+    [OK ] Waga do 0,5 MB: 513 104 B (0,49 MB) z 524 288 B
+    [OK ] Bez obrotu: brak metadanych obrotu
+    [OK ] faststart (moov na początku): ftyp > moov > free > mdat
+    [OK ] Czas trwania: 20,0 s
+    => SPEŁNIA STANDARD

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+release/
+*.spec
+
+# Testy: nagrania i wyniki generowane przez tests/make_test_videos.py
+tests/videos/
+tests/out/
+
+# Szkice logo (robocze)
+assets/logo_*.png
+
+# System
+Thumbs.db
+desktop.ini
