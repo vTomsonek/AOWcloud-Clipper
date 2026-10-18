@@ -18,6 +18,3 @@ third-party components, which remain under their own licenses:
 
 Video encoding uses the ffmpeg / ffprobe programs installed separately by the
 user (for example "winget install ffmpeg"); they are not part of this product.
-
-The horizontal logo images in docs/ use the Montserrat typeface
-(SIL Open Font License 1.1).

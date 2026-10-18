@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo_poziome_ciemne.png">
-    <img alt="AOWcloud Clipper" src="docs/logo_poziome_jasne.png" width="420">
-  </picture>
+  <img alt="AOWcloud Clipper" src="assets/icon.png" width="160">
 </p>
 
 <p align="center">
@@ -248,7 +245,7 @@ clipper/ui/workers.py      wątki: analiza, sprawdzenie pętli, eksport
 clipper/ui/theme.py        wygląd (styl rodziny AOWcloud)
 clipper/ui/icon.py         logo rysowane w kodzie
 build.ps1                  budowanie .exe
-tools/                     ikona .ico i logo poziome do README
+tools/                     generowanie ikony .ico
 tests/                     generator nagrań, test logiki, test okna
 ```
 
