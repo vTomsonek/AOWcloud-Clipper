@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QImage, QKeySequence, QShortcut, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtGui import QColor
@@ -223,7 +223,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(name)
         lay.addWidget(ver)
         lay.addStretch(1)
-        self.btn_options = button("⚙  Opcje", "", self.open_options, "headerBtn")
+        self.btn_options = button(" Opcje", "", self.open_options, "headerBtn")
+        self.btn_options.setIcon(icon.gear_icon(T.HEADER_MUTED, T.HEADER_TEXT))
+        self.btn_options.setIconSize(QSize(16, 16))
         lay.addWidget(self.btn_options)
         lay.addSpacing(10)
         chip = QLabel(f'<span style="color:{T.OK}">●</span>&nbsp; ffmpeg {core.ffmpeg_version(self.tools)}')

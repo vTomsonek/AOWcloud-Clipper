@@ -132,7 +132,7 @@ wyraźnie. Wyłączanie pętli można zezwolić w **Opcjach**: wtedy w oknie edy
 
 ### Opcje i skróty klawiszowe
 
-Przycisk **„⚙ Opcje”** w nagłówku (albo `Ctrl+,`) otwiera ustawienia. Każdy skrót można zmienić:
+Przycisk **„Opcje”** w nagłówku (albo `Ctrl+,`) otwiera ustawienia. Każdy skrót można zmienić:
 kliknij pole, naciśnij nowy klawisz albo kombinację, puste pole oznacza brak skrótu. Program nie
 pozwoli zapisać dwóch akcji z tym samym skrótem. Napisy na przyciskach i podpowiedziach pokazują
 zawsze bieżące skróty.

@@ -3,8 +3,10 @@
 Styl rodziny AOWcloud (jak Reelmaker): ciemny kafel #141414, gradient #FF7A18 → #FFC21A.
 Rysunek w układzie 512x512, skalowany do żądanego rozmiaru.
 """
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 DARK = "#141414"
 STRIP = "#EDEDED"
@@ -69,6 +71,40 @@ def draw(size: int = 256) -> QPixmap:
     _paint(p, size <= 24)
     p.end()
     return pm
+
+
+def gear(color: str, size: int = 32) -> QPixmap:
+    """Zębatka liniowa (8 zębów) do przycisku Opcje; rysowana w układzie 24x24."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.scale(size / 24, size / 24)
+    path = QPainterPath()
+    teeth, r_out, r_in = 8, 10.2, 7.6
+    for i in range(teeth * 4):
+        # każdy ząb: dwa punkty na obwodzie zewnętrznym, dwa na wewnętrznym
+        a = math.radians(i * 360 / (teeth * 4) - 90 + 360 / (teeth * 8))
+        r = r_out if (i % 4) in (0, 1) else r_in
+        pt = QPointF(12 + r * math.cos(a), 12 + r * math.sin(a))
+        path.moveTo(pt) if i == 0 else path.lineTo(pt)
+    path.closeSubpath()
+    hole = QPainterPath()
+    hole.addEllipse(QPointF(12, 12), 3.2, 3.2)
+    p.setPen(QPen(QColor(color), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    p.setBrush(Qt.NoBrush)
+    p.drawPath(path)
+    p.drawPath(hole)
+    p.end()
+    return pm
+
+
+def gear_icon(normal: str, hover: str) -> QIcon:
+    icon = QIcon()
+    for sz in (16, 20, 24, 32, 48):
+        icon.addPixmap(gear(normal, sz), QIcon.Normal)
+        icon.addPixmap(gear(hover, sz), QIcon.Active)
+    return icon
 
 
 def app_icon() -> QIcon:
