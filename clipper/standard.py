@@ -11,6 +11,7 @@ from dataclasses import dataclass
 class VideoStandard:
     key: str                # identyfikator zapisywany w ustawieniach
     name: str               # nazwa w interfejsie i w wyniku
+    short_label: str        # krótka nazwa na przełączniku
     size: int               # kwadrat size x size px
     max_bytes: int          # twardy limit wagi
     crf_start: float        # pierwsza próba: wysoka jakość
@@ -59,6 +60,7 @@ class VideoStandard:
 HOVER = VideoStandard(
     key="najechanie",
     name="Wideo po najechaniu",
+    short_label="Najechanie 250",
     size=250,
     max_bytes=524288,           # 0,5 MB
     crf_start=20.0,
@@ -74,6 +76,7 @@ HOVER = VideoStandard(
 DESCRIPTION = VideoStandard(
     key="opis",
     name="Opis produktu",
+    short_label="Opis 600",
     size=600,
     max_bytes=1048576,          # 1 MB
     # Kalibracja VMAF (model telefonu) na nagraniach produktów, spadek względem CRF 18:

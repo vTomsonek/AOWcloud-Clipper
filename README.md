@@ -64,7 +64,7 @@ Ustawienia (standard, folder zapisu, rozmiar okna) zostają w profilu Windows ka
 
 ## Standardy
 
-Standard wybiera się przełącznikiem w nagłówku okna. Jest widoczny przez cały czas pracy,
+Standard wybiera się przełącznikiem „Najechanie 250 / Opis 600” w pasku kroków. Jest widoczny przez cały czas pracy,
 a program pamięta ostatni wybór. Podpowiedź przełącznika pokazuje pełne parametry.
 
 | | **Wideo po najechaniu** | **Opis produktu** |
@@ -139,7 +139,7 @@ fragmentu, więc przejście jest niewidoczne.
 
 ## Popraw gotowe nagrania
 
-Tryb do stopniowej wymiany starych nagrań (przycisk **„Popraw gotowe nagrania…”**). Dodajesz
+Tryb do stopniowej wymiany starych nagrań (przycisk **„Popraw gotowe…”** w pasku kroków). Dodajesz
 kilka plików albo cały folder (albo przeciągasz je na okno), a program przerabia je do wybranego
 standardu **bez ręcznego kadrowania**:
 

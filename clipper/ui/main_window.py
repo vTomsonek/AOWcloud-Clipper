@@ -152,16 +152,35 @@ class MainWindow(QMainWindow):
         steps_bar.setObjectName("stepsBar")
         steps_bar.setAttribute(Qt.WA_StyledBackground, True)
         sl = QHBoxLayout(steps_bar)
-        sl.setContentsMargins(4, 0, 18, 0)
+        sl.setContentsMargins(4, 0, 18, 6)
         self.steps = StepHeader()
         sl.addWidget(self.steps)
         sl.addStretch(1)
-        self.btn_batch_top = button("Popraw gotowe nagrania…", tip(
+        # przełącznik standardu: krótkie nazwy, pełne parametry w podpowiedzi
+        seg = QHBoxLayout()
+        seg.setSpacing(0)
+        self.std_group = QButtonGroup(self)
+        self.std_group.setExclusive(True)
+        self.std_buttons: dict[str, QPushButton] = {}
+        stds = list(S.STANDARDS.values())
+        for i, st in enumerate(stds):
+            b = QPushButton(st.short_label)
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setObjectName("segL" if i == 0 else ("segR" if i == len(stds) - 1 else "segM"))
+            b.setToolTip(st.tooltip + "\nProgram zapamiętuje ostatni wybór.")
+            b.clicked.connect(lambda _=False, k=st.key: self.on_standard_clicked(k))
+            self.std_group.addButton(b)
+            self.std_buttons[st.key] = b
+            seg.addWidget(b)
+        sl.addLayout(seg)
+        sl.addSpacing(16)
+        self.btn_batch_top = button("Popraw gotowe…", tip(
             "Przerób kilka gotowych plików albo cały folder do wybranego standardu.",
             "Bez ręcznego kadrowania: kwadrat jest skalowany, prostokąt kadrowany do środka.",
             "Program usuwa dźwięk, ustawia 30 fps i faststart, pilnuje limitu wagi."), self.open_batch)
         sl.addWidget(self.btn_batch_top)
-        sl.addSpacing(8)
         self.btn_open_top = button("Otwórz nagranie…", "Wybierz nagranie z dysku (Ctrl+O). "
                                    "Możesz też przeciągnąć plik na okno.", self.open_dialog)
         sl.addWidget(self.btn_open_top)
@@ -203,30 +222,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(name)
         lay.addWidget(ver)
         lay.addStretch(1)
-        std_lbl = QLabel("Standard:")
-        std_lbl.setObjectName("appVersion")
-        lay.addWidget(std_lbl)
-        seg = QHBoxLayout()
-        seg.setSpacing(0)
-        self.std_group = QButtonGroup(self)
-        self.std_group.setExclusive(True)
-        self.std_buttons: dict[str, QPushButton] = {}
-        stds = list(S.STANDARDS.values())
-        for i, st in enumerate(stds):
-            b = QPushButton(st.label)
-            b.setCheckable(True)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setFocusPolicy(Qt.NoFocus)
-            b.setObjectName("segL" if i == 0 else ("segR" if i == len(stds) - 1 else "segM"))
-            b.setToolTip(st.tooltip + "\nProgram zapamiętuje ostatni wybór.")
-            b.clicked.connect(lambda _=False, k=st.key: self.on_standard_clicked(k))
-            self.std_group.addButton(b)
-            self.std_buttons[st.key] = b
-            seg.addWidget(b)
-        lay.addLayout(seg)
-        lay.addSpacing(14)
         chip = QLabel(f'<span style="color:{T.OK}">●</span>&nbsp; ffmpeg {core.ffmpeg_version(self.tools)}')
-        chip.setObjectName("chip")
+        chip.setObjectName("dot")
         chip.setToolTip(f"Kodowanie przez systemowy ffmpeg: {self.tools.ffmpeg}")
         lay.addWidget(chip)
         return bar
@@ -1091,7 +1088,7 @@ class MainWindow(QMainWindow):
                                   f"Krótszy bok co najmniej {std.min_source_side} px.")
         self.lbl_drop_spec.setText(f"Wynik w standardzie „{std.name}”: MP4 {std.dims} px, 30 fps, H.264 High, "
                                    f"bez dźwięku, start natychmiast (faststart), do {std.limit_label}.")
-        self.lbl_batch_std.setText(f"Standard: {std.label}. Zmienisz go przełącznikiem u góry okna.")
+        self.lbl_batch_std.setText(f"Standard: {std.label}. Zmienisz go przełącznikiem w pasku kroków.")
         if self._batch_dir_auto and self.batch_files:
             self.ed_batch_dir.setText(self._default_batch_dir())
 
