@@ -60,7 +60,8 @@
 > to fałszywy alarm, plik można dodać do wyjątków.
 
 Program działa offline, pliki nie wychodzą poza komputer. Aktualizacja to podmiana pliku .exe.
-Ustawienia (standard, folder zapisu, rozmiar okna) zostają w profilu Windows każdego użytkownika.
+Ustawienia (standard, folder zapisu, skróty klawiszowe, rozmiar okna) zostają w profilu Windows
+każdego użytkownika.
 
 ## Standardy
 
@@ -123,19 +124,27 @@ nie koduje gorzej, tylko mówi, o ile skrócić. Przycisk **„Skróć automatyc
   <img alt="Za długi fragment: podpowiedź skrócenia" src="docs/zrzut_za_dlugi.png" width="900">
 </p>
 
-**Płynna pętla.** Program porównuje pierwszą i ostatnią klatkę fragmentu i ostrzega, gdy w pętli
-będzie widać skok. Opcja **„Płynna pętla (przenikanie)”** przenika ostatnie 0,5 s w początek
-fragmentu, więc przejście jest niewidoczne.
+**Płynna pętla** jest domyślnie **zawsze włączona**: ostatnie 0,5 s fragmentu przenika w jego
+początek, więc w sklepie nie widać skoku przy powtórce (plik jest krótszy o te pół sekundy).
+Program dodatkowo porównuje pierwszą i ostatnią klatkę fragmentu i podpowiada, gdy różnią się
+wyraźnie. Wyłączanie pętli można zezwolić w **Opcjach**: wtedy w oknie edycji pojawia się pole
+„Płynna pętla (przenikanie)”.
 
-**Skróty klawiszowe**
+### Opcje i skróty klawiszowe
 
-| Klawisz | Działanie |
+Przycisk **„⚙ Opcje”** w nagłówku (albo `Ctrl+,`) otwiera ustawienia. Każdy skrót można zmienić:
+kliknij pole, naciśnij nowy klawisz albo kombinację, puste pole oznacza brak skrótu. Program nie
+pozwoli zapisać dwóch akcji z tym samym skrótem. Napisy na przyciskach i podpowiedziach pokazują
+zawsze bieżące skróty.
+
+| Domyślny klawisz | Działanie |
 |---|---|
 | `Spacja` | odtwarzaj / pauza (pętla fragmentu) |
 | `I` / `O` | początek / koniec fragmentu w bieżącym miejscu |
 | `←` / `→` | klatka wstecz / naprzód |
 | `Ctrl+O` | otwórz nagranie |
 | `Ctrl+E` | eksportuj |
+| `Ctrl+,` | opcje |
 
 ## Popraw gotowe nagrania
 
@@ -319,7 +328,9 @@ z v0.1.1.
 
 [`tests/smoke_gui.py`](tests/smoke_gui.py) uruchamia okno (`SMOKE_STD=opis` wybiera standard opisu,
 folder zamiast pliku uruchamia tryb poprawiania), eksportuje i zapisuje zrzuty ekranu (stąd obrazy
-w tym README). Nie zmienia ustawień użytkownika.
+w tym README). [`tests/test_options.py`](tests/test_options.py) sprawdza okno Opcje: domyślnie
+włączoną płynną pętlę, zmianę i przywracanie skrótów oraz odrzucanie powtórzonego skrótu.
+Oba testy nie zmieniają ustawień użytkownika.
 
 ## Struktura projektu
 
@@ -330,6 +341,7 @@ clipper/core.py            ffprobe, filtry, dobór CRF, szacunek, weryfikacja, p
 clipper/ui/main_window.py  okno, przełącznik standardu, przepływ pracy, tryb poprawiania
 clipper/ui/widgets.py      kadrowanie, podgląd (kafelek, telefon), oś czasu, pasek wagi, kroki
 clipper/ui/workers.py      wątki: analiza, sprawdzenie pętli, eksport, poprawianie
+clipper/ui/options.py      okno Opcje: skróty klawiszowe (lista akcji) i płynna pętla
 clipper/ui/theme.py        wygląd (styl rodziny AOWcloud)
 clipper/ui/icon.py         logo rysowane w kodzie
 build.ps1                  budowanie .exe

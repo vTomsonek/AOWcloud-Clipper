@@ -35,6 +35,17 @@ def missing_ffmpeg_dialog() -> None:
         break
 
 
+def install_polish_translations(app) -> None:
+    """Polskie teksty samego Qt: Tak/Nie w oknach pytań, nazwy klawiszy (Spacja), okna plików."""
+    from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
+
+    path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    tr = QTranslator(app)
+    if tr.load(QLocale(QLocale.Language.Polish), "qtbase", "_", path):
+        app.installTranslator(tr)
+        app._pl_translator = tr   # referencja na czas działania programu
+
+
 def main() -> int:
     if os.name == "nt":
         try:
@@ -48,6 +59,7 @@ def main() -> int:
     app.setOrganizationName(APP_ORG)
     app.setApplicationVersion(APP_VERSION)
     app.setWindowIcon(icon.app_icon())
+    install_polish_translations(app)
     theme.apply(app)
 
     tools = core.find_tools()

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QFile
                                QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import APP_NAME, APP_ORG, APP_VERSION, core, standard as S
-from . import icon, theme as T
+from . import icon, options, theme as T
 from .widgets import CropView, SizeBar, StepHeader, TileView, Timeline, fmt_time
 from .workers import AnalysisWorker, BatchWorker, ExportWorker, LoopCheckWorker
 
@@ -131,6 +131,7 @@ class MainWindow(QMainWindow):
         self._build()
         self.apply_standard_ui()
         self._shortcuts()
+        self.apply_xfade_setting()
         geo = self.settings.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
@@ -222,6 +223,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(name)
         lay.addWidget(ver)
         lay.addStretch(1)
+        self.btn_options = button("⚙  Opcje", "", self.open_options, "headerBtn")
+        lay.addWidget(self.btn_options)
+        lay.addSpacing(10)
         chip = QLabel(f'<span style="color:{T.OK}">●</span>&nbsp; ffmpeg {core.ffmpeg_version(self.tools)}')
         chip.setObjectName("dot")
         chip.setToolTip(f"Kodowanie przez systemowy ffmpeg: {self.tools.ffmpeg}")
@@ -244,8 +248,8 @@ class MainWindow(QMainWindow):
         lay.addSpacing(16)
         row = QHBoxLayout()
         row.addStretch(1)
-        row.addWidget(button("Otwórz nagranie…", "Wybierz nagranie z dysku (Ctrl+O).",
-                             self.open_dialog, "primary"))
+        self.btn_open_drop = button("Otwórz nagranie…", "", self.open_dialog, "primary")
+        row.addWidget(self.btn_open_drop)
         row.addSpacing(8)
         row.addWidget(button("Popraw gotowe nagrania…", tip(
             "Przerób kilka gotowych plików albo cały folder do wybranego standardu.",
@@ -346,14 +350,14 @@ class MainWindow(QMainWindow):
         self.lbl_loop.hide()
         rv.addWidget(self.lbl_loop)
         self.chk_xfade = QCheckBox("Płynna pętla (przenikanie)")
-        self.chk_xfade.setToolTip("Ostatnie pół sekundy fragmentu przenika w pierwszą klatkę, więc "
-                                  "w pętli nie widać skoku. Plik będzie krótszy o te pół sekundy.")
-        self.chk_xfade.setChecked(self.settings.value("crossfade", False, type=bool))
+        self.chk_xfade.setToolTip(tip("Ostatnie pół sekundy fragmentu przenika w pierwszą klatkę, więc "
+                                      "w pętli nie widać skoku.", "Plik będzie krótszy o te pół sekundy."))
+        self.chk_xfade.setChecked(self.settings.value("crossfade", True, type=bool))
         self.chk_xfade.setFocusPolicy(Qt.NoFocus)
         self.chk_xfade.toggled.connect(self.on_xfade_toggled)
         rv.addWidget(self.chk_xfade)
-        rv.addWidget(label(f"Koniec fragmentu przenika w początek ({core.fmt_s(S.CROSSFADE_S)} s), "
-                           "więc w pętli nie widać skoku.", "small", wrap=True))
+        self.lbl_xfade = label("", "small", wrap=True)
+        rv.addWidget(self.lbl_xfade)
         rv.addStretch(1)
 
         # plik i eksport: zawsze widoczne, niezależnie od wysokości podglądu
@@ -473,12 +477,69 @@ class MainWindow(QMainWindow):
         return page
 
     def _shortcuts(self) -> None:
-        for key, slot in ((Qt.Key_Space, self.toggle_play), (Qt.Key_I, self.set_in),
-                          (Qt.Key_O, self.set_out), (Qt.Key_Left, lambda: self.step_frame(-1)),
-                          (Qt.Key_Right, lambda: self.step_frame(1))):
-            QShortcut(QKeySequence(key), self, slot)
-        QShortcut(QKeySequence("Ctrl+O"), self, self.open_dialog)
-        QShortcut(QKeySequence("Ctrl+E"), self, self.start_export)
+        slots = {"play": self.toggle_play, "in": self.set_in, "out": self.set_out,
+                 "prev": lambda: self.step_frame(-1), "next": lambda: self.step_frame(1),
+                 "open": self.open_dialog, "export": self.start_export, "options": self.open_options}
+        self.shortcuts: dict[str, QShortcut] = {}
+        for a in options.ACTIONS:
+            sc = QShortcut(self)
+            sc.activated.connect(slots[a.key])
+            self.shortcuts[a.key] = sc
+        self.apply_keys()
+
+    def key(self, action: str) -> str:
+        """Bieżący skrót akcji do pokazania w interfejsie ("" gdy brak)."""
+        a = next(a for a in options.ACTIONS if a.key == action)
+        return options.key_label(options.load_key(self.settings, a))
+
+    def apply_keys(self) -> None:
+        """Skróty z ustawień i napisy, które o nich mówią."""
+        for a in options.ACTIONS:
+            self.shortcuts[a.key].setKey(QKeySequence(options.load_key(self.settings, a)))
+
+        def k(action: str, fmt: str) -> str:
+            v = self.key(action)
+            return fmt.format(v) if v else ""
+
+        self.btn_in.setText("Początek tutaj" + k("in", "  [{}]"))
+        self.btn_out.setText("Koniec tutaj" + k("out", "  [{}]"))
+        self.btn_in.setToolTip(tip("Ustaw początek fragmentu w bieżącym miejscu odtwarzania.")
+                               + k("in", "\nSkrót: {}."))
+        self.btn_out.setToolTip(tip("Ustaw koniec fragmentu w bieżącym miejscu odtwarzania.")
+                                + k("out", "\nSkrót: {}."))
+        self.btn_play.setToolTip("Odtwarzaj wybrany fragment w pętli, jak w sklepie." + k("play", "\nSkrót: {}."))
+        self.btn_export.setToolTip(tip("Zakoduj fragment w standardzie sklepu.",
+                                       "Sprawdź wynik i zapisz w wybranym folderze.") + k("export", "\nSkrót: {}."))
+        for b in (self.btn_open_top, self.btn_open_drop):
+            b.setToolTip(tip("Wybierz nagranie z dysku.", "Możesz też przeciągnąć plik na okno.")
+                         + k("open", "\nSkrót: {}."))
+        self.btn_options.setToolTip(tip("Skróty klawiszowe i płynna pętla.") + k("options", "\nSkrót: {}."))
+
+    def open_options(self) -> None:
+        if self.busy():
+            return
+        dlg = options.OptionsDialog(self.settings, self)
+        if dlg.exec():
+            self.apply_keys()
+            self.apply_xfade_setting()
+
+    def xfade_toggle_allowed(self) -> bool:
+        return self.settings.value(options.ALLOW_XFADE_TOGGLE, False, type=bool)
+
+    def apply_xfade_setting(self) -> None:
+        """Domyślnie płynna pętla zawsze włączona; pole wyboru tylko gdy pozwolono w Opcjach."""
+        allowed = self.xfade_toggle_allowed()
+        self.chk_xfade.setVisible(allowed)
+        if allowed:
+            self.lbl_xfade.setText(f"Koniec fragmentu przenika w początek ({core.fmt_s(S.CROSSFADE_S)} s), "
+                                   "więc w pętli nie widać skoku.")
+        else:
+            self.lbl_xfade.setText(f"Płynna pętla jest zawsze włączona: koniec fragmentu przenika w początek "
+                                   f"({core.fmt_s(S.CROSSFADE_S)} s), więc w pętli nie widać skoku. "
+                                   "Wyłączanie możesz zezwolić w Opcjach.")
+        self.update_fragment_label()
+        self.update_estimate()
+        self.update_loop_label()
 
     # ================================================================ wczytanie
 
@@ -671,7 +732,8 @@ class MainWindow(QMainWindow):
         return self.start_ms / 1000.0, (self.end_ms - self.start_ms) / 1000.0
 
     def crossfade(self) -> float:
-        return S.CROSSFADE_S if self.chk_xfade.isChecked() else 0.0
+        on = self.chk_xfade.isChecked() if self.xfade_toggle_allowed() else True
+        return S.CROSSFADE_S if on else 0.0
 
     def update_fragment_label(self) -> None:
         start, dur = self.fragment_s()
@@ -869,7 +931,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _set_exporting(self, on: bool) -> None:
-        for c in self.edit_controls + [self.btn_batch_top] + list(self.std_buttons.values()):
+        for c in self.edit_controls + [self.btn_batch_top, self.btn_options] + list(self.std_buttons.values()):
             c.setEnabled(not on)
         self.btn_export.setVisible(not on)
         self.progress.setVisible(on)
@@ -1201,7 +1263,7 @@ class MainWindow(QMainWindow):
         h.addWidget(right)
         self.batch_controls = [self.btn_batch_files, self.btn_batch_folder, self.btn_batch_clear,
                                self.btn_batch_dir, self.btn_batch_start, self.btn_batch_back,
-                               self.btn_open_top, self.btn_batch_top]
+                               self.btn_open_top, self.btn_batch_top, self.btn_options]
         return page
 
     def open_batch(self) -> None:

@@ -46,6 +46,11 @@ QWidget#header QLabel {{ color: {HEADER_TEXT}; background: transparent; }}
 QLabel#appName {{ font-size: 15pt; font-weight: 700; }}
 QWidget#header QLabel#appVersion {{ color: {HEADER_MUTED}; font-size: 9pt; padding-top: 6px; }}
 QWidget#header QLabel#dot {{ color: {HEADER_MUTED}; font-size: 9pt; }}
+QPushButton#headerBtn {{ background: transparent; border: 1px solid transparent; color: {HEADER_MUTED};
+    padding: 5px 10px; font-size: 9pt; font-weight: 500; }}
+QPushButton#headerBtn:hover {{ color: {HEADER_TEXT}; border-color: {BORDER_STRONG}; }}
+QPushButton#headerBtn:disabled {{ color: {DISABLED}; background: transparent; border-color: transparent; }}
+QKeySequenceEdit {{ background: transparent; }}
 QLabel#chip {{ background: {CHIP}; color: {HEADER_TEXT}; border: 1px solid #2e4a33; border-radius: 11px;
               padding: 3px 10px; font-size: 9pt; }}
 
