@@ -48,6 +48,26 @@ QWidget#header QLabel#appVersion {{ color: {HEADER_MUTED}; font-size: 9pt; paddi
 QLabel#chip {{ background: {CHIP}; color: {HEADER_TEXT}; border: 1px solid #2e4a33; border-radius: 11px;
               padding: 3px 10px; font-size: 9pt; }}
 
+/* przełącznik standardu */
+QPushButton#segL, QPushButton#segM, QPushButton#segR {{ background: {CHIP}; color: {HEADER_MUTED};
+    border: 1px solid #333333; padding: 5px 12px; font-weight: 600; font-size: 9pt; border-radius: 0; }}
+QPushButton#segL {{ border-top-left-radius: 11px; border-bottom-left-radius: 11px; }}
+QPushButton#segR {{ border-top-right-radius: 11px; border-bottom-right-radius: 11px; border-left: none; }}
+QPushButton#segM {{ border-left: none; }}
+QPushButton#segL:hover, QPushButton#segM:hover, QPushButton#segR:hover {{ color: {HEADER_TEXT}; }}
+QPushButton#segL:checked, QPushButton#segM:checked, QPushButton#segR:checked {{ color: {ACCENT_TEXT};
+    border-color: {ACCENT};
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT}, stop:1 {ACCENT2}); }}
+QPushButton#segL:disabled, QPushButton#segM:disabled, QPushButton#segR:disabled {{ color: {DISABLED}; }}
+
+/* tabela trybu poprawiania */
+QTableWidget, QTableView {{ background: {PANEL}; alternate-background-color: {PANEL_2}; border: 1px solid {BORDER};
+                           border-radius: 8px; gridline-color: transparent; outline: 0; }}
+QTableWidget::item {{ padding: 6px 8px; border: none; }}
+QHeaderView {{ background: {PANEL}; }}
+QHeaderView::section {{ background: {PANEL}; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER};
+                       padding: 8px 8px; font-weight: 700; font-size: 9pt; text-align: left; }}
+
 /* kroki jak główne zakładki Reelmakera */
 QWidget#stepsBar {{ background: {HEADER}; border-bottom: 1px solid {BORDER}; }}
 QWidget#stepsBar QLabel#step {{ color: {HEADER_MUTED}; padding: 10px 18px 9px 18px; border: none;

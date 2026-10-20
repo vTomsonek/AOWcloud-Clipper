@@ -39,6 +39,7 @@ class CropView(QWidget):
         self.src_w = 0
         self.src_h = 0
         self.crop: Optional[Crop] = None
+        self.min_crop = S.DEFAULT.min_crop
         self._drag = None   # ("move", start_pt, start_crop) | ("resize", anchor, dir)
         self.setToolTip("Przeciągnij ramkę, żeby przesunąć kadr. Ciągnij za róg, żeby zmienić "
                         "rozmiar. Kółko myszy: rozmiar. Dwuklik: największy możliwy kadr.")
@@ -54,8 +55,14 @@ class CropView(QWidget):
         self.update()
 
     def set_crop(self, c: Crop) -> None:
-        self.crop = c.clamp(self.src_w, self.src_h)
+        self.crop = c.clamp(self.src_w, self.src_h, self.min_crop)
         self.update()
+
+    def set_min_crop(self, size: int) -> None:
+        """Najmniejszy kadr w px źródła (ze standardu); bieżąca ramka jest dopasowywana."""
+        self.min_crop = size
+        if self.crop is not None:
+            self.set_crop(self.crop)
 
     # geometria
     def _rect(self) -> QRectF:
@@ -173,11 +180,11 @@ class CropView(QWidget):
             size = max(sx * (sp.x() - ax), sy * (sp.y() - ay))
             max_x = (self.src_w - ax) if sx > 0 else ax
             max_y = (self.src_h - ay) if sy > 0 else ay
-            size = int(round(max(min(size, max_x, max_y), min(S.MIN_CROP, self.src_w, self.src_h))))
+            size = int(round(max(min(size, max_x, max_y), min(self.min_crop, self.src_w, self.src_h))))
             nx = ax if sx > 0 else ax - size
             ny = ay if sy > 0 else ay - size
             nc = Crop(int(nx), int(ny), size)
-        self.crop = nc.clamp(self.src_w, self.src_h)
+        self.crop = nc.clamp(self.src_w, self.src_h, self.min_crop)
         self.update()
         self.cropChanged.emit(self.crop)
 
@@ -200,42 +207,87 @@ class CropView(QWidget):
         c = self.crop
         step = 1.05 if e.angleDelta().y() < 0 else 1 / 1.05
         size = int(round(c.size * step))
-        size = max(min(size, self.src_w, self.src_h), min(S.MIN_CROP, self.src_w, self.src_h))
+        size = max(min(size, self.src_w, self.src_h), min(self.min_crop, self.src_w, self.src_h))
         cx, cy = c.x + c.size / 2, c.y + c.size / 2
         self.crop = Crop(int(round(cx - size / 2)), int(round(cy - size / 2)), size).clamp(
-            self.src_w, self.src_h)
+            self.src_w, self.src_h, self.min_crop)
         self.update()
         self.cropChanged.emit(self.crop)
         self.cropFinished.emit(self.crop)
 
 
 class TileView(QWidget):
-    """Kafelek sklepu: wycinek bieżącej klatki przeskalowany do zadanego rozmiaru."""
+    """Podgląd wyniku tak, jak zobaczy go klient.
 
-    def __init__(self, side: int, parent=None):
+    "tile": kafelek sklepu side x side.
+    "phone": ekran telefonu szerokości side, wideo kwadratowe na całą szerokość w opisie produktu.
+    """
+    BEZEL = 10
+    TOP = 64          # nazwa, cena i początek opisu nad wideo
+    BOTTOM = 40       # dalszy tekst opisu
+
+    def __init__(self, side: int, mode: str = "tile", parent=None):
         super().__init__(parent)
-        self.side = side
-        self.setFixedSize(side + 2, side + 2)
         self.image: Optional[QImage] = None
         self.src_w = 0
         self.crop: Optional[Crop] = None
+        self.set_mode(side, mode)
+
+    def set_mode(self, side: int, mode: str) -> None:
+        self.side, self.mode = side, mode
+        if mode == "phone":
+            self.setFixedSize(side + 2 * self.BEZEL, side + self.TOP + self.BOTTOM + 2 * self.BEZEL)
+        else:
+            self.setFixedSize(side + 2, side + 2)
+        self.update()
 
     def set_state(self, img: Optional[QImage], src_w: int, crop: Optional[Crop]) -> None:
         self.image, self.src_w, self.crop = img, src_w, crop
         self.update()
 
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        target = QRectF(1, 1, self.side, self.side)
+    def _video(self, p: QPainter, target: QRectF) -> None:
         p.fillRect(target, QColor("#0d0e11"))
         if self.image is not None and not self.image.isNull() and self.crop and self.src_w:
             k = self.image.width() / self.src_w
             c = self.crop
-            src = QRectF(c.x * k, c.y * k, c.size * k, c.size * k)
-            p.drawImage(target, self.image, src)
-        p.setPen(QPen(QColor(T.BORDER), 1))
-        p.drawRect(QRectF(0.5, 0.5, self.side + 1, self.side + 1))
+            p.drawImage(target, self.image, QRectF(c.x * k, c.y * k, c.size * k, c.size * k))
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        if self.mode != "phone":
+            self._video(p, QRectF(1, 1, self.side, self.side))
+            p.setPen(QPen(QColor(T.BORDER), 1))
+            p.drawRect(QRectF(0.5, 0.5, self.side + 1, self.side + 1))
+            return
+        p.setRenderHint(QPainter.Antialiasing)
+        b = self.BEZEL
+        p.setPen(QPen(QColor(T.BORDER_STRONG), 1))
+        p.setBrush(QColor("#050505"))
+        p.drawRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 26, 26)
+        screen = QRectF(b, b, self.side, self.height() - 2 * b)
+        clip = QPainterPath()
+        clip.addRoundedRect(screen, 18, 18)
+        p.save()
+        p.setClipPath(clip)
+        p.fillRect(screen, QColor("#ffffff"))
+        p.setPen(Qt.NoPen)
+        gray = QColor("#d9dce1")
+        x0, w = screen.x() + 16, self.side - 32
+        y = screen.y() + 14
+        p.setBrush(QColor("#1b1b1b"))                                   # nazwa produktu
+        p.drawRoundedRect(QRectF(x0, y, w * 0.62, 11), 4, 4)
+        p.setBrush(QColor(T.ACCENT))                                    # cena
+        p.drawRoundedRect(QRectF(x0, y + 18, w * 0.22, 9), 4, 4)
+        p.setBrush(gray)                                                # tekst opisu
+        p.drawRoundedRect(QRectF(x0, y + 35, w, 7), 3, 3)
+        self._video(p, QRectF(screen.x(), screen.y() + self.TOP, self.side, self.side))
+        yb = screen.y() + self.TOP + self.side + 12
+        for frac in (1.0, 0.7):
+            p.setBrush(gray)
+            p.drawRoundedRect(QRectF(x0, yb, w * frac, 7), 3, 3)
+            yb += 14
+        p.restore()
 
 
 # ------------------------------------------------------------------ oś czasu
@@ -389,8 +441,13 @@ class SizeBar(QWidget):
         self.value: Optional[int] = None
         self.text_override = "Szacunek wagi pojawi się po analizie"
         self.state = "pending"     # pending | ok | warn | bad
-        self.setToolTip("Szacowana waga gotowego pliku na tle limitu sklepu (0,5 MB). "
+        self.set_limit(S.DEFAULT.max_bytes)
+
+    def set_limit(self, max_bytes: int) -> None:
+        self.max_bytes = max_bytes
+        self.setToolTip(f"Szacowana waga gotowego pliku na tle limitu sklepu ({fmt_mb(max_bytes)} MB).\n"
                         "Liczona z próbnego kodowania bieżącego kadru.")
+        self.update()
 
     def set_pending(self, text: str) -> None:
         self.value, self.state, self.text_override = None, "pending", text
@@ -409,10 +466,10 @@ class SizeBar(QWidget):
         p.drawRoundedRect(bar, 6, 6)
         col = {"ok": T.OK, "warn": T.WARN, "bad": T.BAD}.get(self.state, T.MUTED)
         if self.value is not None:
-            frac = min(1.0, self.value / S.MAX_BYTES)
+            frac = min(1.0, self.value / self.max_bytes)
             p.setBrush(QColor(col))
             p.drawRoundedRect(QRectF(0, 24, max(12.0, self.width() * frac), 12), 6, 6)
-            text = f"≈ {fmt_mb(self.value)} / {fmt_mb(S.MAX_BYTES)} MB"
+            text = f"≈ {fmt_mb(self.value)} / {fmt_mb(self.max_bytes)} MB"
         else:
             text = self.text_override
         f = QFont(self.font())

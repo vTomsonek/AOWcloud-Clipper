@@ -214,6 +214,9 @@ class MediaInfo:
     codec: str
     has_audio: bool
     size_bytes: int
+    profile: str = ""
+    pix_fmt: str = ""
+    r_fps: float = 0.0
 
     @property
     def short_side(self) -> int:
@@ -245,15 +248,21 @@ def probe(tools: Tools, path: str) -> MediaInfo:
         codec=v.get("codec_name", "?"),
         has_audio=any(s.get("codec_type") == "audio" for s in streams),
         size_bytes=int((data.get("format") or {}).get("size") or os.path.getsize(path)),
+        profile=v.get("profile", ""), pix_fmt=v.get("pix_fmt", ""),
+        r_fps=_ratio(v.get("r_frame_rate")),
     )
 
 
-def check_source(info: MediaInfo) -> None:
-    if info.short_side < S.MIN_SOURCE_SIDE:
-        raise ClipperError(
-            f"Nagranie jest za małe: {info.width}x{info.height} px. "
-            f"Krótszy bok musi mieć co najmniej {S.MIN_SOURCE_SIDE} px, "
-            f"żeby kadr 250x250 nie był powiększany.")
+def check_source(info: MediaInfo, std: S.VideoStandard) -> None:
+    if info.short_side < std.min_source_side:
+        msg = (f"Nagranie jest za małe: {info.width}x{info.height} px. "
+               f"Krótszy bok musi mieć co najmniej {std.min_source_side} px, "
+               f"żeby kadr {std.dims} nie był powiększany.")
+        other = [o for o in S.STANDARDS.values() if o is not std and info.short_side >= o.min_source_side]
+        if other:
+            msg += (f" Powiększone wideo byłoby rozmazane, dlatego standard „{std.name}” go nie przyjmuje."
+                    f" To nagranie nadaje się do standardu „{other[0].label}”.")
+        raise ClipperError(msg)
     if info.duration < S.MIN_FRAGMENT_S:
         raise ClipperError("Nagranie jest za krótkie (poniżej 1 s).")
 
@@ -266,8 +275,8 @@ class Crop:
     y: int
     size: int
 
-    def clamp(self, w: int, h: int) -> "Crop":
-        size = max(min(self.size, w, h), min(S.MIN_CROP, w, h))
+    def clamp(self, w: int, h: int, min_size: int) -> "Crop":
+        size = max(min(self.size, w, h), min(min_size, w, h))
         x = max(0, min(self.x, w - size))
         y = max(0, min(self.y, h - size))
         return Crop(int(x), int(y), int(size))
@@ -288,15 +297,15 @@ def output_duration(duration: float, crossfade: float) -> float:
     return duration - _crossfade_len(duration, crossfade)
 
 
-def build_filter(info: MediaInfo, crop: Crop, duration: float, crossfade: float = 0.0) -> str:
+def build_filter(info: MediaInfo, crop: Crop, duration: float, size: int, crossfade: float = 0.0) -> str:
     """Kolejność: przycięcie fragmentu, kadr, skalowanie lanczos, fps=30."""
     parts = [f"trim=duration={duration:.3f}", "setpts=PTS-STARTPTS"]
     if (info.width, info.height) != ((info.coded_h, info.coded_w) if info.rotation in (90, 270)
                                      else (info.coded_w, info.coded_h)):
         parts.append(f"scale={info.width}:{info.height},setsar=1")   # niekwadratowe piksele
-    c = crop.clamp(info.width, info.height)
+    c = crop.clamp(info.width, info.height, size)
     parts += [f"crop={c.size}:{c.size}:{c.x}:{c.y}",
-              f"scale={S.OUT_SIZE}:{S.OUT_SIZE}:flags=lanczos",
+              f"scale={size}:{size}:flags=lanczos",
               f"fps={S.OUT_FPS}",
               "format=yuv420p", "setsar=1"]
     chain = ",".join(parts)
@@ -314,15 +323,15 @@ def build_filter(info: MediaInfo, crop: Crop, duration: float, crossfade: float 
 
 
 def make_master(tools: Tools, info: MediaInfo, crop: Crop, start: float, duration: float,
-                out: str, crossfade: float = 0.0, progress: Optional[ProgressCb] = None,
+                out: str, size: int, crossfade: float = 0.0, progress: Optional[ProgressCb] = None,
                 cancel: Optional[threading.Event] = None, label: str = "Przygotowanie") -> None:
-    """Bezstratny plik pośredni 250x250@30 (FFV1). Źródło dekodujemy tylko raz,
+    """Bezstratny plik pośredni size x size @30 (FFV1). Źródło dekodujemy tylko raz,
     a kolejne próby CRF kodują już z małego pliku."""
     args = []
     if start > 0:
         args += ["-ss", f"{start:.3f}"]
     args += ["-i", info.path,
-             "-filter_complex", build_filter(info, crop, duration, crossfade),
+             "-filter_complex", build_filter(info, crop, duration, size, crossfade),
              "-map", "[v]", "-an", "-sn", "-dn", "-map_metadata", "-1",
              "-c:v", "ffv1", "-level", "3", "-g", "1", out]
     run_ffmpeg(tools, args, duration, progress, label, cancel)
@@ -362,15 +371,19 @@ def fmt_int(n: int) -> str:
     return f"{n:,}".replace(",", " ")
 
 
+def fmt_crf(c: float) -> str:
+    return f"{c:g}".replace(".", ",")
+
+
 def fmt_s(x: float) -> str:
     return f"{x:.1f}".replace(".", ",")
 
 
-def shorten_needed(size_at_max: int, duration: float) -> tuple[float, float]:
+def shorten_needed(size_at_max: int, duration: float, max_bytes: int) -> tuple[float, float]:
     """Ile sekund uciąć, licząc z bitrate przy progowym CRF. Zwraca (skróć_o, maks_długość)."""
     overhead = 2000
     rate = max(1.0, (size_at_max - overhead) / max(duration, 0.1))
-    max_dur = (S.MAX_BYTES * 0.97 - overhead) / rate
+    max_dur = (max_bytes * 0.97 - overhead) / rate
     max_dur = math.floor(max(0.0, max_dur) * 2) / 2
     short = math.ceil(max(0.5, duration - max_dur) * 2) / 2
     return short, max_dur
@@ -393,7 +406,7 @@ class ExportResult:
 
 
 def export(tools: Tools, info: MediaInfo, crop: Crop, start: float, duration: float,
-           workdir: str, crossfade: float = 0.0,
+           workdir: str, std: S.VideoStandard, crossfade: float = 0.0,
            progress: Optional[ProgressCb] = None,
            cancel: Optional[threading.Event] = None) -> ExportResult:
     """Pełny eksport: plik pośredni, potem próby CRF od CRF_START w górę, aż plik
@@ -414,8 +427,9 @@ def export(tools: Tools, info: MediaInfo, crop: Crop, start: float, duration: fl
             k = min(state["done"], est_passes - 1)
             progress(0.30 + 0.70 * (k + f) / est_passes, lbl)
 
-    make_master(tools, info, crop, start, duration, master, crossfade, p_master, cancel,
+    make_master(tools, info, crop, start, duration, master, std.size, crossfade, p_master, cancel,
                 "Przygotowanie kadru")
+    limit = std.max_bytes
 
     passes: list[tuple[float, int]] = []
     files: dict[float, str] = {}
@@ -431,42 +445,42 @@ def export(tools: Tools, info: MediaInfo, crop: Crop, start: float, duration: fl
         state["done"] += 1
         return size
 
-    lo_c, lo_s = S.CRF_START, try_crf(S.CRF_START)
-    if lo_s <= S.MAX_BYTES:
-        best = S.CRF_START
+    lo_c, lo_s = std.crf_start, try_crf(std.crf_start)
+    if lo_s <= limit:
+        best = std.crf_start
     else:
         # Najpierw zgadnij CRF z typowej zależności (ok. +6 CRF = połowa wagi)
-        guess = min(S.CRF_MAX, lo_c + 6 * math.log2(lo_s / (S.MAX_BYTES * 0.95)))
+        guess = min(std.crf_max, lo_c + 6 * math.log2(lo_s / (limit * 0.95)))
         hi_c, hi_s = None, None
         g_s = try_crf(guess)
         g_c = round(guess * 4) / 4
-        if g_s <= S.MAX_BYTES:
+        if g_s <= limit:
             hi_c, hi_s = g_c, g_s
         else:
             lo_c, lo_s = g_c, g_s
-            if g_c < S.CRF_MAX:
-                m_s = try_crf(S.CRF_MAX)
-                if m_s <= S.MAX_BYTES:
-                    hi_c, hi_s = S.CRF_MAX, m_s
+            if g_c < std.crf_max:
+                m_s = try_crf(std.crf_max)
+                if m_s <= limit:
+                    hi_c, hi_s = std.crf_max, m_s
                 else:
-                    lo_c, lo_s = S.CRF_MAX, m_s
+                    lo_c, lo_s = std.crf_max, m_s
         if hi_c is None:
-            short, max_dur = shorten_needed(lo_s, out_dur)
+            short, max_dur = shorten_needed(lo_s, out_dur, limit)
             raise TooLong(
-                f"Fragment jest za długi na limit 0,5 MB nawet przy najniższej dopuszczalnej "
-                f"jakości (CRF {S.CRF_MAX:g}: {fmt_mb(lo_s)} MB). "
+                f"Fragment jest za długi na limit {std.limit_label} nawet przy najniższej dopuszczalnej "
+                f"jakości (CRF {fmt_crf(std.crf_max)}: {fmt_mb(lo_s)} MB). "
                 f"Skróć fragment o ok. {fmt_s(short)} s (do ok. {fmt_s(max_dur)} s).",
                 short, max_dur, lo_s)
         # Zawężanie: lo za duży, hi mieści się. Szukamy najniższego CRF, który się mieści.
         # Koniec, gdy przedział jest wąski albo plik i tak wykorzystuje prawie cały limit
-        while (hi_c - lo_c > S.CRF_PRECISION and hi_s < S.MAX_BYTES * S.FILL_ENOUGH
+        while (hi_c - lo_c > S.CRF_PRECISION and hi_s < limit * S.FILL_ENOUGH
                and len(passes) < S.MAX_PASSES):
-            mid = _interp_crf(lo_c, lo_s, hi_c, hi_s, S.MAX_BYTES * 0.985)
+            mid = _interp_crf(lo_c, lo_s, hi_c, hi_s, limit * 0.985)
             mid = max(lo_c + 0.25, min(hi_c - 0.25, round(mid * 4) / 4))
             if mid in files:
                 break
             m_s = try_crf(mid)
-            if m_s <= S.MAX_BYTES:
+            if m_s <= limit:
                 hi_c, hi_s = mid, m_s
             else:
                 lo_c, lo_s = mid, m_s
@@ -493,6 +507,7 @@ class Analysis:
     times: list[float]
     sizes: dict[float, list[int]]
     master: str
+    std: S.VideoStandard
 
     def _sum(self, crf: float, start: float, end: float) -> int:
         t, sz = self.times, self.sizes[crf]
@@ -511,18 +526,19 @@ class Analysis:
         return int(raw + 1200 + 14 * frames)   # nagłówki mp4 i indeks próbek
 
     def prediction(self, start: float, duration: float, crossfade: float = 0.0) -> dict:
-        s_start = self.estimate(S.CRF_START, start, duration, crossfade)
-        s_max = self.estimate(S.CRF_MAX, start, duration, crossfade)
-        res = {"size": s_start, "crf": S.CRF_START, "fits": True,
+        std = self.std
+        s_start = self.estimate(std.crf_start, start, duration, crossfade)
+        s_max = self.estimate(std.crf_max, start, duration, crossfade)
+        res = {"size": s_start, "crf": std.crf_start, "fits": True,
                "size_start": s_start, "size_max": s_max, "shorten": 0.0, "max_dur": None}
-        if s_start <= S.MAX_BYTES:
+        if s_start <= std.max_bytes:
             return res
-        if s_max <= S.MAX_BYTES:
-            crf = _interp_crf(S.CRF_START, s_start, S.CRF_MAX, s_max, S.MAX_BYTES)
-            res.update(size=S.MAX_BYTES, crf=max(S.CRF_START, min(S.CRF_MAX, crf)))
+        if s_max <= std.max_bytes:
+            crf = _interp_crf(std.crf_start, s_start, std.crf_max, s_max, std.max_bytes)
+            res.update(size=std.max_bytes, crf=max(std.crf_start, min(std.crf_max, crf)))
             return res
-        short, max_dur = shorten_needed(s_max, output_duration(duration, crossfade))
-        res.update(size=s_max, crf=S.CRF_MAX, fits=False, shorten=short, max_dur=max_dur)
+        short, max_dur = shorten_needed(s_max, output_duration(duration, crossfade), std.max_bytes)
+        res.update(size=s_max, crf=std.crf_max, fits=False, shorten=short, max_dur=max_dur)
         return res
 
 
@@ -540,7 +556,7 @@ def _packet_sizes(tools: Tools, path: str) -> tuple[list[float], list[int]]:
     return [t for t, _ in rows], [s for _, s in rows]
 
 
-def analyze(tools: Tools, info: MediaInfo, crop: Crop, workdir: str,
+def analyze(tools: Tools, info: MediaInfo, crop: Crop, workdir: str, std: S.VideoStandard,
             cancel: Optional[threading.Event] = None,
             progress: Optional[ProgressCb] = None) -> Analysis:
     os.makedirs(workdir, exist_ok=True)
@@ -551,10 +567,10 @@ def analyze(tools: Tools, info: MediaInfo, crop: Crop, workdir: str,
         if progress:
             progress(0.5 * f, l)
 
-    make_master(tools, info, crop, 0.0, dur, master, 0.0, pm, cancel, "Analiza")
+    make_master(tools, info, crop, 0.0, dur, master, std.size, 0.0, pm, cancel, "Analiza")
     sizes = {}
     times: list[float] = []
-    for k, crf in enumerate((S.CRF_START, S.CRF_MAX)):
+    for k, crf in enumerate((std.crf_start, std.crf_max)):
         out = os.path.join(workdir, f"analysis_{int(crf)}.mp4")
         frames = int(round(dur * S.OUT_FPS))
         args = ["-i", master, "-an", *x264_args(crf, frames),
@@ -570,7 +586,7 @@ def analyze(tools: Tools, info: MediaInfo, crop: Crop, workdir: str,
         sizes[crf] = s
         os.remove(out)
     n = min(len(times), *(len(v) for v in sizes.values()))
-    return Analysis(times[:n], {c: v[:n] for c, v in sizes.items()}, master)
+    return Analysis(times[:n], {c: v[:n] for c, v in sizes.items()}, master, std)
 
 
 def loop_difference(tools: Tools, master: str, start: float, end: float) -> float:
@@ -639,7 +655,7 @@ class Verification:
         return [c for c in self.checks if not c.ok]
 
 
-def verify(tools: Tools, path: str) -> Verification:
+def verify(tools: Tools, path: str, std: S.VideoStandard) -> Verification:
     checks: list[Check] = []
     try:
         data = ffprobe_json(tools, path)
@@ -665,7 +681,7 @@ def verify(tools: Tools, path: str) -> Verification:
     checks.append(Check("Kontener MP4", "mp4" in fmt_name and path.lower().endswith(".mp4"),
                         fmt_name or "nieznany"))
     checks.append(Check("Jedna ścieżka wideo", len(vids) == 1, f"ścieżek wideo: {len(vids)}"))
-    checks.append(Check("Wymiary 250x250", (w, h) == (S.OUT_SIZE, S.OUT_SIZE), f"{w}x{h}"))
+    checks.append(Check(f"Wymiary {std.dims}", (w, h) == (std.size, std.size), f"{w}x{h}"))
     checks.append(Check("30 fps", abs(r_fps - S.OUT_FPS) < 0.01 and abs(a_fps - S.OUT_FPS) < 0.05,
                         f"{a_fps:.2f} fps".replace(".", ",")))
     checks.append(Check("Kodek H.264", v.get("codec_name") == S.OUT_CODEC, v.get("codec_name", "?")))
@@ -675,8 +691,8 @@ def verify(tools: Tools, path: str) -> Verification:
                         "brak ścieżki audio" if not auds else f"ścieżek audio: {len(auds)}"))
     checks.append(Check("Bez innych ścieżek", not others,
                         "tylko wideo" if not others else f"dodatkowe: {len(others)}"))
-    checks.append(Check("Waga do 0,5 MB", 0 < size <= S.MAX_BYTES,
-                        f"{fmt_int(size)} B ({fmt_mb(size)} MB) z {fmt_int(S.MAX_BYTES)} B"))
+    checks.append(Check(f"Waga do {std.limit_label}", 0 < size <= std.max_bytes,
+                        f"{fmt_int(size)} B ({fmt_mb(size)} MB) z {fmt_int(std.max_bytes)} B"))
     checks.append(Check("Bez obrotu", rot == 0 and not has_matrix,
                         "brak metadanych obrotu" if not has_matrix else f"obrót {rot}°"))
     moov_first = "moov" in atoms and "mdat" in atoms and atoms.index("moov") < atoms.index("mdat")
@@ -684,3 +700,86 @@ def verify(tools: Tools, path: str) -> Verification:
     checks.append(Check("Czas trwania", dur > 0.3, f"{fmt_s(dur)} s"))
     return Verification(checks, w, h, a_fps, dur, size, bitrate,
                         v.get("codec_name", ""), v.get("profile", ""))
+
+
+# ---------------------------------------------------------------- poprawianie gotowych nagrań
+
+@dataclass
+class FixResult:
+    """Wynik trybu „Popraw gotowe nagrania” dla jednego pliku."""
+    source: str
+    before: Optional[MediaInfo] = None
+    status: str = "error"        # ok | not_ok | too_long | too_small | error
+    message: str = ""
+    method: str = ""             # "bez kodowania" albo "CRF 23"
+    output: str = ""             # gotowy plik w katalogu roboczym
+    verification: Optional[Verification] = None
+    shorten_s: float = 0.0
+
+
+def can_remux(info: MediaInfo, std: S.VideoStandard) -> bool:
+    """Obraz już jest w standardzie: wystarczy przepakować (bez dźwięku, z faststart)."""
+    return (info.coded_w == info.coded_h == std.size and info.rotation == 0
+            and abs(info.sar - 1.0) < 0.01 and info.codec == S.OUT_CODEC
+            and info.profile == S.OUT_PROFILE and info.pix_fmt == S.OUT_PIX_FMT
+            and abs(info.r_fps - S.OUT_FPS) < 0.01 and abs(info.fps - S.OUT_FPS) < 0.05
+            and info.size_bytes <= std.max_bytes * 1.5)
+
+
+def remux(tools: Tools, info: MediaInfo, out: str, cancel: Optional[threading.Event] = None) -> None:
+    run_ffmpeg(tools, ["-i", info.path, "-map", "0:v:0", "-c:v", "copy", "-an", "-sn", "-dn",
+                       "-map_metadata", "-1", "-map_chapters", "-1",
+                       "-metadata:s:v:0", "handler_name=VideoHandler",
+                       "-movflags", "+faststart", "-f", "mp4", out],
+               info.duration, None, "", cancel)
+
+
+def fix_file(tools: Tools, path: str, std: S.VideoStandard, workdir: str,
+             progress: Optional[ProgressCb] = None,
+             cancel: Optional[threading.Event] = None) -> FixResult:
+    """Przerabia gotowe nagranie do standardu bez ręcznego kadrowania.
+
+    Kwadrat jest tylko skalowany, prostokąt kadrowany do środka, cały plik jako fragment.
+    Gdy obraz już spełnia standard, plik jest tylko przepakowany (bez straty jakości)."""
+    res = FixResult(path)
+    os.makedirs(workdir, exist_ok=True)
+    try:
+        info = probe(tools, path)
+        res.before = info
+        try:
+            check_source(info, std)
+        except ClipperError as e:
+            res.status, res.message = "too_small", str(e)
+            return res
+        if can_remux(info, std):
+            out = os.path.join(workdir, "remux.mp4")
+            remux(tools, info, out, cancel)
+            ver = verify(tools, out, std)
+            if ver.ok:
+                res.status, res.method, res.output, res.verification = "ok", "bez kodowania", out, ver
+                res.message = "Obraz był już w standardzie: usunięto dźwięk i metadane, dodano faststart."
+                return res
+            os.remove(out)
+        crop = Crop.centered(info.width, info.height)
+        try:
+            er = export(tools, info, crop, 0.0, info.duration, workdir, std, 0.0, progress, cancel)
+        except TooLong as e:
+            res.status, res.shorten_s = "too_long", e.shorten_s
+            res.message = (f"Do ręcznego skrócenia: nawet przy CRF {fmt_crf(std.crf_max)} plik waży "
+                           f"{fmt_mb(e.size_at_max)} MB. Skróć o ok. {fmt_s(e.shorten_s)} s "
+                           f"(do ok. {fmt_s(e.max_duration_s)} s).")
+            return res
+        ver = verify(tools, er.path, std)
+        res.output, res.verification = er.path, ver
+        res.method = f"CRF {fmt_crf(er.crf)}"
+        if ver.ok:
+            res.status, res.message = "ok", "Spełnia standard."
+        else:
+            res.status = "not_ok"
+            res.message = "Nie spełnia: " + "; ".join(f"{c.name} ({c.detail})" for c in ver.failures)
+        return res
+    except Cancelled:
+        raise
+    except ClipperError as e:
+        res.status, res.message = "error", str(e)
+        return res

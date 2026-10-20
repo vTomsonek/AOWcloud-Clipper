@@ -13,18 +13,21 @@ from typing import Optional
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QImage, QKeySequence, QShortcut, QTransform
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout,
-                               QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar,
-                               QPushButton, QScrollArea, QSizePolicy, QStackedWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QFileDialog, QGridLayout,
+                               QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
+                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+                               QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from .. import APP_NAME, APP_ORG, APP_VERSION, core, standard as S
 from . import icon, theme as T
 from .widgets import CropView, SizeBar, StepHeader, TileView, Timeline, fmt_time
-from .workers import AnalysisWorker, ExportWorker, LoopCheckWorker
+from .workers import AnalysisWorker, BatchWorker, ExportWorker, LoopCheckWorker
 
 VIDEO_FILTER = ("Nagrania wideo (*.mp4 *.mov *.m4v *.webm *.mkv *.avi *.wmv *.mts *.m2ts "
                 "*.3gp *.mpg *.mpeg *.flv);;Wszystkie pliki (*.*)")
+VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wmv", ".mts", ".m2ts", ".3gp",
+             ".mpg", ".mpeg", ".flv"}
 TEMP_PREFIX = "aowclipper_"
 BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -58,6 +61,11 @@ def label(text: str = "", obj: str | None = None, wrap: bool = False) -> QLabel:
     return lb
 
 
+def tip(*lines: str) -> str:
+    """Tooltip: każde zdanie zaczyna się od nowej linii."""
+    return "\n".join(lines)
+
+
 def button(text: str, tip: str, slot=None, obj: str | None = None) -> QPushButton:
     b = QPushButton(text)
     b.setToolTip(tip)
@@ -71,7 +79,7 @@ def button(text: str, tip: str, slot=None, obj: str | None = None) -> QPushButto
 
 
 class MainWindow(QMainWindow):
-    PAGE_DROP, PAGE_EDIT, PAGE_RESULT = 0, 1, 2
+    PAGE_DROP, PAGE_EDIT, PAGE_RESULT, PAGE_BATCH = 0, 1, 2, 3
 
     def __init__(self, tools: core.Tools):
         super().__init__()
@@ -95,6 +103,11 @@ class MainWindow(QMainWindow):
         self.loop_diff: Optional[float] = None
         self.result_path: Optional[str] = None
         self.result_saved = False
+        self.std: S.VideoStandard = S.get(self.settings.value("standard"))
+        self.result_std: S.VideoStandard = self.std
+        self.batch_worker: Optional[BatchWorker] = None
+        self.batch_files: list[str] = []
+        self._batch_dir_auto = True
 
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.setAcceptDrops(True)
@@ -116,6 +129,7 @@ class MainWindow(QMainWindow):
         self.loop_timer = QTimer(self, singleShot=True, interval=400, timeout=self.start_loop_check)
 
         self._build()
+        self.apply_standard_ui()
         self._shortcuts()
         geo = self.settings.value("geometry")
         if geo is not None:
@@ -142,6 +156,12 @@ class MainWindow(QMainWindow):
         self.steps = StepHeader()
         sl.addWidget(self.steps)
         sl.addStretch(1)
+        self.btn_batch_top = button("Popraw gotowe nagrania…", tip(
+            "Przerób kilka gotowych plików albo cały folder do wybranego standardu.",
+            "Bez ręcznego kadrowania: kwadrat jest skalowany, prostokąt kadrowany do środka.",
+            "Program usuwa dźwięk, ustawia 30 fps i faststart, pilnuje limitu wagi."), self.open_batch)
+        sl.addWidget(self.btn_batch_top)
+        sl.addSpacing(8)
         self.btn_open_top = button("Otwórz nagranie…", "Wybierz nagranie z dysku (Ctrl+O). "
                                    "Możesz też przeciągnąć plik na okno.", self.open_dialog)
         sl.addWidget(self.btn_open_top)
@@ -156,6 +176,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._build_drop())
         self.stack.addWidget(self._build_edit())
         self.stack.addWidget(self._build_result())
+        self.stack.addWidget(self._build_batch())
 
         self.status_busy = QLabel("")
         self.statusBar().addPermanentWidget(self.status_busy)
@@ -182,6 +203,28 @@ class MainWindow(QMainWindow):
         lay.addWidget(name)
         lay.addWidget(ver)
         lay.addStretch(1)
+        std_lbl = QLabel("Standard:")
+        std_lbl.setObjectName("appVersion")
+        lay.addWidget(std_lbl)
+        seg = QHBoxLayout()
+        seg.setSpacing(0)
+        self.std_group = QButtonGroup(self)
+        self.std_group.setExclusive(True)
+        self.std_buttons: dict[str, QPushButton] = {}
+        stds = list(S.STANDARDS.values())
+        for i, st in enumerate(stds):
+            b = QPushButton(st.label)
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setObjectName("segL" if i == 0 else ("segR" if i == len(stds) - 1 else "segM"))
+            b.setToolTip(st.tooltip + "\nProgram zapamiętuje ostatni wybór.")
+            b.clicked.connect(lambda _=False, k=st.key: self.on_standard_clicked(k))
+            self.std_group.addButton(b)
+            self.std_buttons[st.key] = b
+            seg.addWidget(b)
+        lay.addLayout(seg)
+        lay.addSpacing(14)
         chip = QLabel(f'<span style="color:{T.OK}">●</span>&nbsp; ffmpeg {core.ffmpeg_version(self.tools)}')
         chip.setObjectName("chip")
         chip.setToolTip(f"Kodowanie przez systemowy ffmpeg: {self.tools.ffmpeg}")
@@ -198,22 +241,24 @@ class MainWindow(QMainWindow):
         big = label("Przeciągnij tutaj nagranie produktu", "h1")
         big.setAlignment(Qt.AlignCenter)
         lay.addWidget(big)
-        sub = label("mp4, mov, webm, mkv i inne. Pion, poziom albo kwadrat. Krótszy bok co najmniej 250 px.",
-                    "muted")
-        sub.setAlignment(Qt.AlignCenter)
-        lay.addWidget(sub)
+        self.lbl_drop_sub = label("", "muted")
+        self.lbl_drop_sub.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.lbl_drop_sub)
         lay.addSpacing(16)
         row = QHBoxLayout()
         row.addStretch(1)
         row.addWidget(button("Otwórz nagranie…", "Wybierz nagranie z dysku (Ctrl+O).",
                              self.open_dialog, "primary"))
+        row.addSpacing(8)
+        row.addWidget(button("Popraw gotowe nagrania…", tip(
+            "Przerób kilka gotowych plików albo cały folder do wybranego standardu.",
+            "Bez ręcznego kadrowania."), self.open_batch))
         row.addStretch(1)
         lay.addLayout(row)
         lay.addSpacing(26)
-        spec = label("Wynik zawsze w standardzie sklepu: MP4 250x250 px, 30 fps, H.264 High, "
-                     "bez dźwięku, start natychmiast (faststart), do 0,5 MB.", "small")
-        spec.setAlignment(Qt.AlignCenter)
-        lay.addWidget(spec)
+        self.lbl_drop_spec = label("", "small")
+        self.lbl_drop_spec.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.lbl_drop_spec)
         lay.addStretch(1)
         return w
 
@@ -280,8 +325,7 @@ class MainWindow(QMainWindow):
         srow = QHBoxLayout()
         self.lbl_quality = label("", "small", wrap=True)
         srow.addWidget(self.lbl_quality, 1)
-        self.btn_autoshort = button("Skróć automatycznie", "Przesuń koniec fragmentu tak, żeby "
-                                    "plik zmieścił się w limicie 0,5 MB.", self.auto_shorten)
+        self.btn_autoshort = button("Skróć automatycznie", "", self.auto_shorten)
         self.btn_autoshort.hide()
         srow.addWidget(self.btn_autoshort)
         scol.addLayout(srow)
@@ -294,12 +338,12 @@ class MainWindow(QMainWindow):
         rv = QVBoxLayout(right_inner)
         rv.setContentsMargins(2, 6, 6, 2)
         rv.setSpacing(8)
-        rv.addWidget(label("PODGLĄD W KAFELKU 250x250", "section"))
-        self.tile = TileView(S.OUT_SIZE)
-        self.tile.setToolTip("Tak kadr będzie wyglądał w kafelku sklepu (250x250 px).")
+        self.lbl_preview = label("", "section")
+        rv.addWidget(self.lbl_preview)
+        self.tile = TileView(self.std.preview_px, self.std.preview)
         rv.addWidget(self.tile, 0, Qt.AlignHCenter)
-        rv.addWidget(label("Na telefonie kafelek ma ok. 170 px, na komputerze ok. 255 px.", "small",
-                           wrap=True))
+        self.lbl_preview_hint = label("", "small", wrap=True)
+        rv.addWidget(self.lbl_preview_hint)
 
         self.lbl_loop = label("", "small", wrap=True)
         self.lbl_loop.hide()
@@ -313,8 +357,13 @@ class MainWindow(QMainWindow):
         rv.addWidget(self.chk_xfade)
         rv.addWidget(label(f"Koniec fragmentu przenika w początek ({core.fmt_s(S.CROSSFADE_S)} s), "
                            "więc w pętli nie widać skoku.", "small", wrap=True))
+        rv.addStretch(1)
 
-        rv.addSpacing(6)
+        # plik i eksport: zawsze widoczne, niezależnie od wysokości podglądu
+        bottom = QWidget()
+        rv = QVBoxLayout(bottom)
+        rv.setContentsMargins(10, 8, 12, 4)
+        rv.setSpacing(8)
         rv.addWidget(label("PLIK WYNIKOWY", "section"))
         rv.addWidget(label("Nazwa pliku (np. numer produktu):", "small"))
         self.ed_name = QLineEdit()
@@ -345,18 +394,18 @@ class MainWindow(QMainWindow):
                                  self.cancel_export, "danger")
         self.btn_cancel.hide()
         rv.addWidget(self.btn_cancel)
-        rv.addStretch(1)
 
-        right_inner.setFixedWidth(282)
+        self.right_inner = right_inner
         scroll = QScrollArea()
         scroll.setWidget(right_inner)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        right = panel("Kafelek i eksport")
+        right = panel("Podgląd i eksport")
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
-        rl.addWidget(scroll)
-        right.setFixedWidth(330)
+        rl.addWidget(scroll, 1)
+        rl.addWidget(bottom)
+        self.right_panel = right
         h.addWidget(right)
         self.edit_controls = [left, self.chk_xfade, self.ed_name, self.ed_dir, self.btn_export,
                               self.btn_open_top]
@@ -391,25 +440,38 @@ class MainWindow(QMainWindow):
         h.addWidget(left, 1)
 
         right = panel("Gotowy plik")
-        right.setFixedWidth(330)
-        rv = QVBoxLayout(right)
+        self.result_right = right
+        outer = QVBoxLayout(right)
+        outer.setContentsMargins(0, 0, 0, 0)
+        res_inner = QWidget()
+        rv = QVBoxLayout(res_inner)
         rv.setContentsMargins(8, 8, 8, 4)
         rv.setSpacing(10)
-        rv.addWidget(label("W KAFELKU, W PĘTLI, BEZ DŹWIĘKU", "section"))
-        self.result_tile = TileView(S.OUT_SIZE)
+        self.lbl_result_preview = label("", "section")
+        rv.addWidget(self.lbl_result_preview)
+        self.result_tile = TileView(self.std.preview_px, self.std.preview)
         self.result_tile.setToolTip("Gotowy plik odtwarzany w pętli, bez dźwięku, jak w sklepie.")
         self.result_sink = QVideoSink(self)
         self.result_sink.videoFrameChanged.connect(self.on_result_frame)
         self.result_player.setVideoSink(self.result_sink)
         rv.addWidget(self.result_tile, 0, Qt.AlignHCenter)
-        rv.addSpacing(6)
+        rv.addStretch(1)
+        res_scroll = QScrollArea()
+        res_scroll.setWidget(res_inner)
+        res_scroll.setWidgetResizable(True)
+        res_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(res_scroll, 1)
+        buttons = QWidget()
+        rv = QVBoxLayout(buttons)
+        rv.setContentsMargins(10, 6, 12, 4)
+        rv.setSpacing(8)
         self.btn_reveal = button("Pokaż w folderze", "Otwórz Eksplorator z zaznaczonym plikiem.",
                                  self.reveal, "primary")
         rv.addWidget(self.btn_reveal)
         rv.addWidget(button("Wróć do edycji", "Wróć do kadru i fragmentu tego samego nagrania.",
                             self.back_to_edit))
         rv.addWidget(button("Nowe nagranie…", "Wczytaj kolejne nagranie.", self.open_dialog))
-        rv.addStretch(1)
+        outer.addWidget(buttons)
         h.addWidget(right)
         return page
 
@@ -424,7 +486,7 @@ class MainWindow(QMainWindow):
     # ================================================================ wczytanie
 
     def open_dialog(self) -> None:
-        if self.exporting():
+        if self.busy():
             return
         start = self.settings.value("open_dir", str(Path.home() / "Videos"))
         path, _ = QFileDialog.getOpenFileName(self, "Otwórz nagranie", start, VIDEO_FILTER)
@@ -433,22 +495,24 @@ class MainWindow(QMainWindow):
             self.load_file(path)
 
     def dragEnterEvent(self, e):
-        if not self.exporting() and e.mimeData().hasUrls() and any(
+        if not self.busy() and e.mimeData().hasUrls() and any(
                 u.isLocalFile() for u in e.mimeData().urls()):
             e.acceptProposedAction()
 
     def dropEvent(self, e):
         files = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
-        if files:
+        if self.stack.currentIndex() == self.PAGE_BATCH:
+            self.batch_add(files)
+        elif files:
             self.load_file(files[0])
 
     def load_file(self, path: str) -> None:
-        if self.exporting():
+        if self.busy():
             return
         self.setCursor(Qt.WaitCursor)
         try:
             info = core.probe(self.tools, path)
-            core.check_source(info)
+            core.check_source(info, self.std)
         except core.ClipperError as e:
             self.unsetCursor()
             QMessageBox.warning(self, "Nie można użyć tego nagrania", str(e))
@@ -475,7 +539,7 @@ class MainWindow(QMainWindow):
         self.end_ms = dur_ms if info.duration <= 15 else 10000
         self.timeline.set_range(self.start_ms, self.end_ms)
         self.timeline.set_alert(False)
-        self.ed_name.setText(f"{Path(path).stem}_250")
+        self.ed_name.setText(f"{Path(path).stem}{self.std.suffix}")
         out_dir = self.settings.value("out_dir", "")
         if not out_dir or not os.path.isdir(out_dir):
             out_dir = str(Path(path).parent)
@@ -651,7 +715,7 @@ class MainWindow(QMainWindow):
         self.cancel_analysis()
         self._seq += 1
         workdir = os.path.join(self.tmp_root, f"analysis_{self._seq}")
-        w = AnalysisWorker(self.tools, self.info, self.crop_view.crop, workdir, self)
+        w = AnalysisWorker(self.tools, self.info, self.crop_view.crop, workdir, self.std, self)
         seq = self._seq
         w.progress.connect(lambda f, _l, seq=seq: self._analysis_progress(seq, f))
         w.done.connect(lambda res, seq=seq, d=workdir: self._analysis_done(seq, res, d))
@@ -693,7 +757,7 @@ class MainWindow(QMainWindow):
         start, dur = self.fragment_s()
         pred = self.analysis.prediction(start, dur, self.crossfade())
         self.prediction = pred
-        if pred["fits"] and pred["crf"] <= S.CRF_START + 0.01:
+        if pred["fits"] and pred["crf"] <= self.analysis.std.crf_start + 0.01:
             self.size_bar.set_value(pred["size"], "ok")
             self.lbl_quality.setText("Najwyższa jakość. Plik zmieści się w limicie.")
             self.timeline.set_alert(False)
@@ -794,8 +858,9 @@ class MainWindow(QMainWindow):
         start, dur = self.fragment_s()
         workdir = os.path.join(self.tmp_root, "export")
         shutil.rmtree(workdir, ignore_errors=True)
+        self.result_std = self.std
         w = ExportWorker(self.tools, self.info, self.crop_view.crop, start, dur,
-                         self.crossfade(), workdir, self)
+                         self.crossfade(), workdir, self.std, self)
         w.progress.connect(self._export_progress)
         w.finished_ok.connect(self._export_done)
         w.too_long.connect(self._export_too_long)
@@ -807,7 +872,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _set_exporting(self, on: bool) -> None:
-        for c in self.edit_controls:
+        for c in self.edit_controls + [self.btn_batch_top] + list(self.std_buttons.values()):
             c.setEnabled(not on)
         self.btn_export.setVisible(not on)
         self.progress.setVisible(on)
@@ -883,7 +948,7 @@ class MainWindow(QMainWindow):
     def show_result(self, res: core.ExportResult, ver: core.Verification, save_error) -> None:
         ok = ver.ok and self.result_saved
         if ok:
-            self.lbl_verdict.setText("✔  Spełnia standard sklepu")
+            self.lbl_verdict.setText(f"✔  Spełnia standard: {self.result_std.label}")
             self.lbl_verdict.setStyleSheet(f"color: {T.OK};")
             self.lbl_saved.setText(f"Zapisano: {self.result_path}")
         elif ver.ok:
@@ -891,7 +956,8 @@ class MainWindow(QMainWindow):
             self.lbl_verdict.setStyleSheet(f"color: {T.BAD};")
             self.lbl_saved.setText(f"Błąd zapisu: {save_error}. Wybierz inny folder i eksportuj ponownie.")
         else:
-            self.lbl_verdict.setText("✖  Nie spełnia standardu, plik NIE został zapisany")
+            self.lbl_verdict.setText(f"✖  Nie spełnia standardu „{self.result_std.name}”, "
+                                     "plik NIE został zapisany")
             self.lbl_verdict.setStyleSheet(f"color: {T.BAD};")
             self.lbl_saved.setText("Poniżej lista problemów. Wróć do edycji i spróbuj ponownie.")
         self.btn_reveal.setEnabled(ok)
@@ -900,11 +966,12 @@ class MainWindow(QMainWindow):
             it = self.params_grid.takeAt(0)
             if it.widget():
                 it.widget().deleteLater()
-        rows = [("Wymiary", f"{ver.width} x {ver.height} px"),
+        rows = [("Standard", self.result_std.label),
+                ("Wymiary", f"{ver.width} x {ver.height} px"),
                 ("Klatki", f"{ver.fps:.2f} fps".replace(".", ",")),
                 ("Czas", f"{core.fmt_s(ver.duration)} s"),
                 ("Waga", f"{core.fmt_mb(ver.size)} MB ({core.fmt_int(ver.size)} B, "
-                         f"limit {core.fmt_int(S.MAX_BYTES)} B)"),
+                         f"limit {core.fmt_int(self.result_std.max_bytes)} B)"),
                 ("Bitrate", f"{ver.bitrate // 1000} kb/s"),
                 ("Kodek", f"H.264 {ver.profile}, CRF {crf_txt(res.crf)}"),
                 ("Próby kodowania", ", ".join(f"CRF {crf_txt(c)}: {core.fmt_mb(s)} MB"
@@ -960,9 +1027,409 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(self.PAGE_EDIT)
         self.steps.set_step(3)
 
+    # ================================================================ standard
+
+    def busy(self) -> bool:
+        return self.exporting() or self.batch_running()
+
+    def on_standard_clicked(self, key: str) -> None:
+        std = S.get(key)
+        if std is self.std:
+            return
+        if self.busy():
+            self._sync_std_buttons()
+            return
+        if self.info is not None and self.info.short_side < std.min_source_side:
+            try:
+                core.check_source(self.info, std)
+            except core.ClipperError as e:
+                QMessageBox.warning(self, "Nie można przełączyć standardu",
+                                    f"{e}\n\nZostaje standard „{self.std.label}”.")
+            self._sync_std_buttons()
+            return
+        if self.stack.currentIndex() == self.PAGE_RESULT:
+            self.back_to_edit()
+        old, self.std = self.std, std
+        self.settings.setValue("standard", std.key)
+        self.apply_standard_ui()
+        if self.info is not None:
+            name = self.ed_name.text()
+            if name.endswith(old.suffix):
+                self.ed_name.setText(name[: -len(old.suffix)] + std.suffix)
+            self.analysis = None
+            self.prediction = None
+            self.lbl_quality.setText("")
+            self.timeline.set_alert(False)
+            self.btn_autoshort.hide()
+            self.start_analysis()
+
+    def _sync_std_buttons(self) -> None:
+        for k, b in self.std_buttons.items():
+            b.setChecked(k == self.std.key)
+
+    def apply_standard_ui(self) -> None:
+        """Wszystkie napisy, limity i podglądy zależne od standardu."""
+        std = self.std
+        self._sync_std_buttons()
+        self.crop_view.set_min_crop(std.min_crop)
+        self.tile.set_mode(std.preview_px, std.preview)
+        self.result_tile.set_mode(std.preview_px, std.preview)
+        self.tile.set_state(self.image, self.info.width if self.info else 0, self.crop_view.crop)
+        self.tile.setToolTip(tip(f"Tak kadr będzie wyglądał u klienta ({std.name.lower()}).",
+                                 f"Plik ma {std.dims} px."))
+        self.lbl_preview.setText(std.preview_title)
+        self.lbl_preview_hint.setText(std.preview_hint)
+        self.lbl_result_preview.setText(std.preview_title + ", W PĘTLI")
+        inner = max(282, self.tile.width() + 4)
+        self.right_inner.setFixedWidth(inner)
+        self.right_panel.setFixedWidth(inner + 48)
+        self.result_right.setFixedWidth(max(330, self.result_tile.width() + 48))
+        self.size_bar.set_limit(std.max_bytes)
+        self.btn_autoshort.setToolTip(tip("Przesuń koniec fragmentu tak, żeby plik zmieścił się w limicie "
+                                          f"{std.limit_label}."))
+        self.lbl_drop_sub.setText(f"mp4, mov, webm, mkv i inne. Pion, poziom albo kwadrat. "
+                                  f"Krótszy bok co najmniej {std.min_source_side} px.")
+        self.lbl_drop_spec.setText(f"Wynik w standardzie „{std.name}”: MP4 {std.dims} px, 30 fps, H.264 High, "
+                                   f"bez dźwięku, start natychmiast (faststart), do {std.limit_label}.")
+        self.lbl_batch_std.setText(f"Standard: {std.label}. Zmienisz go przełącznikiem u góry okna.")
+        if self._batch_dir_auto and self.batch_files:
+            self.ed_batch_dir.setText(self._default_batch_dir())
+
+    # ================================================================ popraw gotowe nagrania
+
+    def batch_running(self) -> bool:
+        return self.batch_worker is not None and self.batch_worker.isRunning()
+
+    def _build_batch(self) -> QWidget:
+        page = QWidget()
+        h = QHBoxLayout(page)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(12)
+
+        left = panel("Popraw gotowe nagrania")
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(8, 8, 8, 4)
+        lv.setSpacing(8)
+        lv.addWidget(label("Gotowe pliki są przerabiane do wybranego standardu bez ręcznego kadrowania: "
+                           "kwadrat jest tylko skalowany, prostokąt kadrowany do środka. Dźwięk jest usuwany, "
+                           "obraz dostaje 30 fps i faststart. Pliki, których obraz już spełnia standard, są "
+                           "tylko przepakowane, bez utraty jakości. Plik, który nie zmieści się w limicie przy "
+                           "najniższej dopuszczalnej jakości, jest oznaczany do ręcznego skrócenia.",
+                           "muted", wrap=True))
+        self.lbl_batch_std = label("", "small", wrap=True)
+        lv.addWidget(self.lbl_batch_std)
+        row = QHBoxLayout()
+        self.btn_batch_files = button("Dodaj pliki…", tip("Wybierz jeden albo kilka plików wideo.",
+                                                          "Możesz też przeciągnąć pliki na okno."),
+                                      self.batch_add_files)
+        self.btn_batch_folder = button("Dodaj folder…", tip("Dodaj wszystkie nagrania z wybranego folderu.",
+                                                            "Podfoldery nie są przeszukiwane."),
+                                       self.batch_add_folder)
+        self.btn_batch_clear = button("Wyczyść listę", tip("Usuń wszystkie pliki z listy.",
+                                                           "Pliki na dysku zostają bez zmian."),
+                                      self.batch_clear)
+        for b in (self.btn_batch_files, self.btn_batch_folder, self.btn_batch_clear):
+            row.addWidget(b)
+        row.addStretch(1)
+        lv.addLayout(row)
+
+        t = QTableWidget(0, 4)
+        t.setHorizontalHeaderLabels(["Plik", "Przed", "Po", "Wynik"])
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        t.setSelectionMode(QAbstractItemView.NoSelection)
+        t.setFocusPolicy(Qt.NoFocus)
+        t.setWordWrap(True)
+        t.setTextElideMode(Qt.ElideNone)
+        t.setAlternatingRowColors(True)
+        hh = t.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Interactive)
+        hh.setSectionResizeMode(1, QHeaderView.Interactive)
+        hh.setSectionResizeMode(2, QHeaderView.Interactive)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        hh.setMinimumSectionSize(80)
+        t.setColumnWidth(0, 190)
+        t.setColumnWidth(1, 255)
+        t.setColumnWidth(2, 220)
+        t.setToolTip("Najedź na wynik, żeby zobaczyć pełny opis.")
+        self.batch_table = t
+        lv.addWidget(t, 1)
+        self.lbl_batch_summary = label("Dodaj pliki albo folder. Możesz też przeciągnąć je na okno.", "small",
+                                       wrap=True)
+        lv.addWidget(self.lbl_batch_summary)
+        h.addWidget(left, 1)
+
+        right = panel("Zapis")
+        right.setFixedWidth(330)
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(8, 8, 8, 4)
+        rv.setSpacing(8)
+        rv.addWidget(label("FOLDER ZAPISU", "section"))
+        frow = QHBoxLayout()
+        self.ed_batch_dir = QLineEdit()
+        self.ed_batch_dir.setReadOnly(True)
+        self.ed_batch_dir.setToolTip(tip("Folder na poprawione pliki.",
+                                         "Domyślnie podfolder obok pierwszego pliku z listy."))
+        frow.addWidget(self.ed_batch_dir, 1)
+        self.btn_batch_dir = button("Zmień…", tip("Wybierz inny folder zapisu."), self.batch_choose_dir)
+        frow.addWidget(self.btn_batch_dir)
+        rv.addLayout(frow)
+        rv.addWidget(label("Pliki zachowują swoje nazwy. Gdy folder zapisu jest tym samym folderem co "
+                           "oryginał, dostają dopisek standardu, więc oryginały nigdy nie są nadpisywane.",
+                           "small", wrap=True))
+        rv.addSpacing(8)
+        self.btn_batch_start = button("Popraw wszystkie", tip(
+            "Przerób wszystkie pliki z listy do wybranego standardu.",
+            "Zapisane zostaną tylko pliki, które przejdą weryfikację."), self.batch_start, "primary")
+        rv.addWidget(self.btn_batch_start)
+        self.batch_progress = QProgressBar()
+        self.batch_progress.setRange(0, 1000)
+        self.batch_progress.hide()
+        rv.addWidget(self.batch_progress)
+        self.lbl_batch_progress = label("", "small", wrap=True)
+        self.lbl_batch_progress.hide()
+        rv.addWidget(self.lbl_batch_progress)
+        self.btn_batch_cancel = button("Przerwij", tip("Zatrzymaj po bieżącym kroku.",
+                                                       "Pliki już zapisane zostają w folderze."),
+                                       self.batch_cancel, "danger")
+        self.btn_batch_cancel.hide()
+        rv.addWidget(self.btn_batch_cancel)
+        self.btn_batch_reveal = button("Pokaż folder", tip("Otwórz folder zapisu w Eksploratorze."),
+                                       self.batch_reveal)
+        rv.addWidget(self.btn_batch_reveal)
+        self.btn_batch_back = button("Wróć", tip("Wróć do pracy z jednym nagraniem.",
+                                                 "Lista plików zostaje."), self.batch_back)
+        rv.addWidget(self.btn_batch_back)
+        rv.addStretch(1)
+        h.addWidget(right)
+        self.batch_controls = [self.btn_batch_files, self.btn_batch_folder, self.btn_batch_clear,
+                               self.btn_batch_dir, self.btn_batch_start, self.btn_batch_back,
+                               self.btn_open_top, self.btn_batch_top]
+        return page
+
+    def open_batch(self) -> None:
+        if self.busy():
+            return
+        self._want_play = False
+        self.player.pause()
+        if self.stack.currentIndex() == self.PAGE_RESULT:
+            self._stop_result()
+        self.stack.setCurrentIndex(self.PAGE_BATCH)
+        self.steps.set_step(0)
+
+    def batch_back(self) -> None:
+        if self.batch_running():
+            return
+        if self.info is None:
+            self.stack.setCurrentIndex(self.PAGE_DROP)
+            self.steps.set_step(1)
+        else:
+            self.stack.setCurrentIndex(self.PAGE_EDIT)
+            self.steps.set_step(2)
+
+    def _default_batch_dir(self) -> str:
+        first = Path(self.batch_files[0]).parent
+        return str(first / f"poprawione{self.std.suffix}")
+
+    def batch_add(self, paths: list[str]) -> None:
+        if self.batch_running():
+            return
+        files = []
+        for p in paths:
+            pp = Path(p)
+            if pp.is_dir():
+                files += sorted(str(f) for f in pp.iterdir() if f.is_file() and f.suffix.lower() in VIDEO_EXT)
+            elif pp.is_file() and pp.suffix.lower() in VIDEO_EXT:
+                files.append(str(pp))
+        known = {os.path.normcase(f) for f in self.batch_files}
+        for f in files:
+            if os.path.normcase(f) in known:
+                continue
+            known.add(os.path.normcase(f))
+            self.batch_files.append(f)
+            r = self.batch_table.rowCount()
+            self.batch_table.insertRow(r)
+            item = QTableWidgetItem(Path(f).name)
+            item.setToolTip(f)
+            self.batch_table.setItem(r, 0, item)
+            for c, txt in ((1, ""), (2, ""), (3, "czeka")):
+                self.batch_table.setItem(r, c, QTableWidgetItem(txt))
+        if self.batch_files and (self._batch_dir_auto or not self.ed_batch_dir.text()):
+            self.ed_batch_dir.setText(self._default_batch_dir())
+        self.lbl_batch_summary.setText(f"Plików na liście: {len(self.batch_files)}.")
+
+    def batch_add_files(self) -> None:
+        start = self.settings.value("open_dir", str(Path.home() / "Videos"))
+        paths, _ = QFileDialog.getOpenFileNames(self, "Dodaj nagrania", start, VIDEO_FILTER)
+        if paths:
+            self.settings.setValue("open_dir", str(Path(paths[0]).parent))
+            self.batch_add(paths)
+
+    def batch_add_folder(self) -> None:
+        start = self.settings.value("open_dir", str(Path.home() / "Videos"))
+        d = QFileDialog.getExistingDirectory(self, "Dodaj folder z nagraniami", start)
+        if d:
+            self.settings.setValue("open_dir", d)
+            self.batch_add([d])
+
+    def batch_clear(self) -> None:
+        if self.batch_running():
+            return
+        self.batch_files = []
+        self.batch_table.setRowCount(0)
+        self._batch_dir_auto = True
+        self.ed_batch_dir.setText("")
+        self.lbl_batch_summary.setText("Dodaj pliki albo folder. Możesz też przeciągnąć je na okno.")
+
+    def batch_choose_dir(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Folder zapisu", self.ed_batch_dir.text())
+        if d:
+            self.ed_batch_dir.setText(d)
+            self._batch_dir_auto = False
+
+    def _batch_targets(self, out_dir: str) -> list[str]:
+        targets, used = [], set()
+        for f in self.batch_files:
+            stem = Path(f).stem
+            same = os.path.normcase(os.path.abspath(Path(f).parent)) == os.path.normcase(os.path.abspath(out_dir))
+            name = stem + (self.std.suffix if same else "")
+            cand, k = name, 2
+            while os.path.normcase(cand) in used:
+                cand, k = f"{name}_{k}", k + 1
+            used.add(os.path.normcase(cand))
+            targets.append(os.path.join(out_dir, cand + ".mp4"))
+        return targets
+
+    def batch_start(self) -> None:
+        if self.busy() or not self.batch_files:
+            return
+        out_dir = self.ed_batch_dir.text().strip()
+        if not out_dir:
+            QMessageBox.warning(self, "Brak folderu", "Wybierz folder zapisu.")
+            return
+        targets = self._batch_targets(out_dir)
+        exist = [t for t in targets if os.path.exists(t)]
+        if exist:
+            r = QMessageBox.question(self, "Pliki już istnieją",
+                                     f"W folderze zapisu jest już {len(exist)} z tych plików. Zastąpić je?")
+            if r != QMessageBox.Yes:
+                return
+        for r in range(self.batch_table.rowCount()):
+            for c, txt in ((1, ""), (2, ""), (3, "czeka")):
+                self.batch_table.setItem(r, c, QTableWidgetItem(txt))
+        self.batch_counts = {"ok": 0, "too_long": 0, "bad": 0}
+        self.batch_out_dir = out_dir
+        self.batch_std = self.std
+        w = BatchWorker(self.tools, list(self.batch_files), targets, self.std,
+                        os.path.join(self.tmp_root, "batch"), self)
+        w.progress.connect(self._batch_progress)
+        w.row_started.connect(lambda r: self._batch_cell(r, 3, "w toku…", T.ACCENT))
+        w.row_done.connect(self._batch_row_done)
+        w.all_done.connect(self._batch_done)
+        w.finished.connect(w.deleteLater)
+        self.batch_worker = w
+        self._set_batch_running(True)
+        w.start()
+
+    def _set_batch_running(self, on: bool) -> None:
+        for c in self.batch_controls + list(self.std_buttons.values()):
+            c.setEnabled(not on)
+        self.btn_batch_start.setVisible(not on)
+        self.batch_progress.setVisible(on)
+        self.lbl_batch_progress.setVisible(on)
+        self.btn_batch_cancel.setVisible(on)
+        self.btn_batch_cancel.setEnabled(on)
+        self.set_busy("Pracuję…" if on else "")
+        if on:
+            self.batch_progress.setValue(0)
+            self.lbl_batch_progress.setText("Przygotowanie…")
+
+    def _batch_progress(self, f: float, text: str) -> None:
+        self.batch_progress.setValue(int(f * 1000))
+        if text:
+            self.lbl_batch_progress.setText(text)
+
+    def _batch_cell(self, row: int, col: int, text: str, color: Optional[str] = None,
+                    tooltip: str = "") -> None:
+        item = QTableWidgetItem(text)
+        if color:
+            item.setForeground(QColor(color))
+        if tooltip:
+            item.setToolTip(tooltip)
+        self.batch_table.setItem(row, col, item)
+
+    @staticmethod
+    def _fps_txt(f: float) -> str:
+        return f"{f:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " fps"
+
+    def _batch_row_done(self, row: int, res: core.FixResult, saved: str) -> None:
+        b = res.before
+        if b is not None:
+            self._batch_cell(row, 1, f"{b.width}x{b.height}, {self._fps_txt(b.fps)}, "
+                                     f"{core.fmt_mb(b.size_bytes)} MB, "
+                                     f"{'z dźwiękiem' if b.has_audio else 'bez dźwięku'}")
+        v = res.verification
+        if v is not None and res.status in ("ok", "not_ok"):
+            self._batch_cell(row, 2, f"{v.width}x{v.height}, {self._fps_txt(v.fps)}, "
+                                     f"{core.fmt_mb(v.size)} MB, bez dźwięku")
+        full = res.message.replace(". ", ".\n")       # podpowiedź: każde zdanie w nowej linii
+        std = self.batch_std
+        if res.status == "ok" and saved:
+            self.batch_counts["ok"] += 1
+            self._batch_cell(row, 3, f"✔  spełnia ({res.method})", T.OK, f"Zapisano: {saved}\n{full}")
+        elif res.status == "too_long":
+            self.batch_counts["too_long"] += 1
+            self._batch_cell(row, 3, f"✂  do ręcznego skrócenia o ok. {core.fmt_s(res.shorten_s)} s",
+                             T.WARN, full)
+        else:
+            self.batch_counts["bad"] += 1
+            if res.status == "too_small" and b is not None:
+                short = f"✖  za małe: {b.short_side} px, wymagane {std.min_source_side} px"
+            elif res.status == "not_ok" and v is not None:
+                short = "✖  nie spełnia: " + ", ".join(c.name for c in v.failures)
+            else:
+                short = "✖  błąd: " + (res.message[:70] + "…" if len(res.message) > 70 else res.message)
+            self._batch_cell(row, 3, short, T.BAD, full)
+        self.batch_table.resizeRowsToContents()
+
+    def _batch_done(self, cancelled: bool) -> None:
+        self.batch_worker = None
+        self._set_batch_running(False)
+        c = self.batch_counts
+        txt = (f"Spełnia i zapisano: {c['ok']}. Do ręcznego skrócenia: {c['too_long']}. "
+               f"Odrzucone albo błąd: {c['bad']}. Standard: {self.batch_std.label}.")
+        if cancelled:
+            txt = "Przerwano. " + txt
+            for r in range(self.batch_table.rowCount()):
+                it = self.batch_table.item(r, 3)
+                if it is not None and it.text() in ("czeka", "w toku…"):
+                    self._batch_cell(r, 3, "pominięto (przerwano)", T.MUTED)
+        self.lbl_batch_summary.setText(txt)
+        self.lbl_batch_progress.setText(txt)
+        self.lbl_batch_progress.show()
+
+    def batch_cancel(self) -> None:
+        if self.batch_running():
+            self.btn_batch_cancel.setEnabled(False)
+            self.lbl_batch_progress.setText("Przerywam…")
+            self.batch_worker.cancel.set()
+
+    def batch_reveal(self) -> None:
+        d = self.ed_batch_dir.text().strip()
+        if d and os.path.isdir(d):
+            subprocess.Popen(f'explorer "{os.path.normpath(d)}"')
+
     # ================================================================ zamykanie
 
     def closeEvent(self, e):
+        if self.batch_running():
+            r = QMessageBox.question(self, "Trwa poprawianie nagrań",
+                                     "Poprawianie nagrań jeszcze trwa. Przerwać i zamknąć program?")
+            if r != QMessageBox.Yes:
+                e.ignore()
+                return
+            self.batch_worker.cancel.set()
+            self.batch_worker.wait(10000)
         if self.exporting():
             r = QMessageBox.question(self, "Trwa eksport", "Eksport jeszcze trwa. Przerwać i zamknąć program?")
             if r != QMessageBox.Yes:

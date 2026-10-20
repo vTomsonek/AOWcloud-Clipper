@@ -1,6 +1,7 @@
 """Test dymny interfejsu: wczytuje nagranie, czeka na analizę, robi zrzuty, eksportuje.
 
-Uruchomienie:  .venv\\Scripts\\python.exe -m tests.smoke_gui <nagranie> <folder_zrzutów>
+Uruchomienie:  .venv\\Scripts\\python.exe -m tests.smoke_gui <nagranie|folder> <folder_zrzutów> [pelny]
+SMOKE_STD=opis wybiera standard „Opis produktu”. Folder zamiast nagrania: tryb „Popraw gotowe nagrania”.
 """
 import os
 import sys
@@ -36,6 +37,10 @@ def main():
     win = MainWindow(core.find_tools())
     win.resize(1280, 820)
     win.show()
+    if os.environ.get("SMOKE_STD"):
+        win.on_standard_clicked(os.environ["SMOKE_STD"])
+    if Path(src).is_dir():
+        return smoke_batch(app, win, src, shots)
     # SMOKE_OUT / SMOKE_NAME: folder i nazwa pliku widoczne na zrzutach (np. do README)
     out_dir = os.environ.get("SMOKE_OUT") or tempfile.mkdtemp(prefix="aowclipper_smoke_out_")
     os.makedirs(out_dir, exist_ok=True)
@@ -83,6 +88,31 @@ def main():
     QTimer.singleShot(180000, app.quit)
     app.exec()
     print("zrzuty:", log)
+
+
+def smoke_batch(app, win, folder, shots):
+    out_dir = os.environ.get("SMOKE_OUT") or tempfile.mkdtemp(prefix="aowclipper_smoke_out_")
+    win.open_batch()
+    win.batch_add([folder])
+    win.ed_batch_dir.setText(out_dir)
+    win._batch_dir_auto = False
+    name = f"popraw_{win.std.key}"
+
+    def wait():
+        if win.batch_running():
+            QTimer.singleShot(500, wait)
+            return
+        win.grab().save(str(shots / f"{name}.png"))
+        print("podsumowanie:", win.lbl_batch_summary.text())
+        for r in range(win.batch_table.rowCount()):
+            print("  ", " | ".join(win.batch_table.item(r, c).text() for c in range(4)))
+        win.close()
+        app.quit()
+
+    win.batch_start()
+    QTimer.singleShot(1000, wait)
+    QTimer.singleShot(900000, app.quit)
+    app.exec()
 
 
 if __name__ == "__main__":
